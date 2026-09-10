@@ -1,0 +1,1017 @@
+---
+title: ""
+author: ""
+date: ""
+format:
+  revealjs:
+    theme: default
+    transition: slide
+    slide-number: true
+    toc: false
+    css: styles.css
+editor:
+  markdown:
+    wrap: 72
+---
+
+``` {r}
+#| label: preparation_presentation
+#| include: false
+#| message: false
+#| warning: false
+
+library(readxl)
+library(dplyr)
+library(ggplot2)
+library(tidyr)
+
+# Importer la vue préparée pour la présentation
+df_presentation <- read_excel(
+  "doc/df_analyse_bottleneck.xlsx"
+)
+
+# Calculer les colonnes de marge manquantes
+df_presentation <- df_presentation |>
+  mutate(
+    marge_unitaire_ht = prix_vente_corrige_ht - prix_achat_ht,
+
+    marge_totale_ht = marge_unitaire_ht * quantite_vendue_octobre
+  )
+
+# Vérifier la présence des colonnes nécessaires
+colonnes_requises <- c(
+  "nom_produit",
+  "type_produit",
+  "prix_vente_corrige_ht",
+  "chiffre_affaires_ht",
+  "quantite_vendue_octobre",
+  "quantite_en_stock",
+  "valeur_stock_prix_achat_ht",
+  "marge_unitaire_ht",
+  "marge_totale_ht"
+)
+
+colonnes_manquantes <- setdiff(
+  colonnes_requises,
+  names(df_presentation)
+)
+
+if (length(colonnes_manquantes) > 0) {
+  stop(
+    paste(
+      "Colonnes manquantes dans df_presentation :",
+      paste(colonnes_manquantes, collapse = ", ")
+    )
+  )
+}
+
+
+# Slide 9 -------------------------------------------------------------
+
+## Préparer les prix de vente corrigés
+
+donnees_prix_presentation <- df_presentation |>
+  filter(
+    !is.na(prix_vente_corrige_ht)
+  )
+
+
+## Calculer les indicateurs de prix
+
+resume_prix_presentation <- donnees_prix_presentation |>
+  summarise(
+    minimum = min(
+      prix_vente_corrige_ht,
+      na.rm = TRUE
+    ),
+    mediane = median(
+      prix_vente_corrige_ht,
+      na.rm = TRUE
+    ),
+    moyenne = mean(
+      prix_vente_corrige_ht,
+      na.rm = TRUE
+    ),
+    maximum = max(
+      prix_vente_corrige_ht,
+      na.rm = TRUE
+    )
+  )
+
+
+## Créer l'histogramme des prix
+
+graphique_distribution_prix <- ggplot(
+  donnees_prix_presentation,
+  aes(x = prix_vente_corrige_ht)
+) +
+  geom_histogram(
+    bins = 30,
+    fill = "#4C86B7",
+    color = "white"
+  ) +
+  scale_x_continuous(
+    labels = scales::label_number(
+      decimal.mark = ",",
+      big.mark = " ",
+      suffix = " €"
+    )
+  ) +
+  labs(
+    x = "Prix de vente corrigé",
+    y = "Nombre de références"
+  ) +
+  theme_minimal() +
+  theme(
+    panel.grid.minor = element_blank()
+  )
+
+
+# Slide 10 ------------------------------------------------------------
+
+## Créer le boxplot des prix
+
+graphique_boxplot_prix <- ggplot(
+  donnees_prix_presentation,
+  aes(
+    x = prix_vente_corrige_ht,
+    y = ""
+  )
+) +
+  geom_boxplot(
+    fill = "#4C86B7",
+    color = "#2F4F68",
+    outlier.color = "#C44E52",
+    outlier.alpha = 0.7
+  ) +
+  scale_x_continuous(
+    labels = scales::label_number(
+      decimal.mark = ",",
+      big.mark = " ",
+      suffix = " €"
+    )
+  ) +
+  labs(
+    x = "Prix de vente corrigé",
+    y = NULL
+  ) +
+  theme_minimal() +
+  theme(
+    axis.text.y = element_blank(),
+    axis.ticks.y = element_blank(),
+    panel.grid.minor = element_blank()
+  )
+
+
+# Slide 11 ------------------------------------------------------------
+
+## Calculer les indicateurs commerciaux
+
+kpi_commerciaux <- df_presentation |>
+  summarise(
+    ca_total_ht = sum(
+      chiffre_affaires_ht,
+      na.rm = TRUE
+    ),
+    quantites_vendues = sum(
+      quantite_vendue_octobre,
+      na.rm = TRUE
+    ),
+    references_vendues = sum(
+      quantite_vendue_octobre > 0,
+      na.rm = TRUE
+    ),
+    references_catalogue = n()
+  )
+
+
+# Slide 12 ------------------------------------------------------------
+
+## Sélectionner les 10 principaux contributeurs au CA
+
+top_10_ca_presentation <- df_presentation |>
+  filter(
+    !is.na(chiffre_affaires_ht)
+  ) |>
+  arrange(
+    desc(chiffre_affaires_ht)
+  ) |>
+  slice_head(n = 10)
+
+
+## Calculer la part cumulée du chiffre d'affaires
+
+pareto_ca_presentation <- df_presentation |>
+  filter(
+    !is.na(chiffre_affaires_ht)
+  ) |>
+  arrange(
+    desc(chiffre_affaires_ht)
+  ) |>
+  mutate(
+    rang = row_number(),
+    part_ca_cumulee = cumsum(chiffre_affaires_ht) /
+      sum(chiffre_affaires_ht, na.rm = TRUE)
+  )
+
+
+## Identifier le seuil de 80 % du chiffre d'affaires
+
+nombre_references_80_ca <- pareto_ca_presentation |>
+  filter(
+    part_ca_cumulee >= 0.80
+  ) |>
+  slice_head(n = 1) |>
+  pull(rang)
+
+
+## Calculer la part cumulée des quantités vendues
+
+pareto_quantite_presentation <- df_presentation |>
+  filter(
+    !is.na(quantite_vendue_octobre)
+  ) |>
+  arrange(
+    desc(quantite_vendue_octobre)
+  ) |>
+  mutate(
+    rang = row_number(),
+    part_quantite_cumulee =
+      cumsum(quantite_vendue_octobre) /
+      sum(quantite_vendue_octobre, na.rm = TRUE)
+  )
+
+
+## Identifier le seuil de 80 % des quantités vendues
+
+nombre_references_80_quantite <-
+  pareto_quantite_presentation |>
+  filter(
+    part_quantite_cumulee >= 0.80
+  ) |>
+  slice_head(n = 1) |>
+  pull(rang)
+
+
+## Regrouper les résultats des analyses à 80 %
+
+resume_contribution_presentation <- tibble::tibble(
+  references_80_ca = nombre_references_80_ca,
+
+  part_catalogue_80_ca =
+    nombre_references_80_ca /
+    nrow(df_presentation),
+
+  references_80_quantite =
+    nombre_references_80_quantite,
+
+  part_catalogue_80_quantite =
+    nombre_references_80_quantite /
+    nrow(df_presentation)
+)
+
+
+## Créer le graphique des 10 principaux contributeurs au CA
+
+graphique_top_ca_presentation <- ggplot(
+  top_10_ca_presentation,
+  aes(
+    x = reorder(
+      nom_produit,
+      chiffre_affaires_ht
+    ),
+    y = chiffre_affaires_ht
+  )
+) +
+  geom_col(
+    fill = "#4C86B7"
+  ) +
+  geom_text(
+    aes(
+      label = scales::number(
+        chiffre_affaires_ht,
+        accuracy = 1,
+        decimal.mark = ",",
+        big.mark = " "
+      )
+    ),
+    hjust = -0.1,
+    size = 3.5
+  ) +
+  coord_flip() +
+  scale_x_discrete(
+    labels = function(x) {
+      stringr::str_wrap(x, width = 34)
+    }
+  ) +
+  scale_y_continuous(
+    labels = scales::label_number(
+      decimal.mark = ",",
+      big.mark = " ",
+      suffix = " €"
+    ),
+    expand = expansion(
+      mult = c(0, 0.16)
+    )
+  ) +
+  labs(
+    x = NULL,
+    y = "Chiffre d'affaires HT"
+  ) +
+  theme_minimal() +
+  theme(
+    axis.text.y = element_text(size = 8),
+    panel.grid.minor = element_blank()
+  )
+
+
+# Slide 13 ------------------------------------------------------------
+
+## Préparer les données de stock
+
+df_stock_presentation <- df_presentation |>
+  mutate(
+    type_produit = coalesce(
+      type_produit,
+      "Non renseigné"
+    ),
+
+    couverture_stock_mois = if_else(
+      !is.na(quantite_vendue_octobre) &
+        quantite_vendue_octobre > 0 &
+        !is.na(quantite_en_stock) &
+        quantite_en_stock >= 0,
+
+      quantite_en_stock /
+        quantite_vendue_octobre,
+
+      NA_real_
+    )
+  )
+
+
+## Calculer la valorisation par type de produit
+
+valorisation_type_presentation <- df_stock_presentation |>
+  group_by(type_produit) |>
+  summarise(
+    valeur_stock = sum(
+      valeur_stock_prix_achat_ht,
+      na.rm = TRUE
+    ),
+    .groups = "drop"
+  ) |>
+  arrange(
+    desc(valeur_stock)
+  )
+
+
+## Calculer les indicateurs de stock
+
+kpi_stock_presentation <- df_stock_presentation |>
+  summarise(
+    valorisation_totale = sum(
+      valeur_stock_prix_achat_ht,
+      na.rm = TRUE
+    ),
+
+    couverture_mediane = median(
+      couverture_stock_mois,
+      na.rm = TRUE
+    )
+  )
+
+
+## Créer le graphique de valorisation du stock
+
+graphique_valorisation_type_presentation <- ggplot(
+  valorisation_type_presentation,
+  aes(
+    x = reorder(
+      type_produit,
+      valeur_stock
+    ),
+    y = valeur_stock
+  )
+) +
+  geom_col(
+    fill = "#4C86B7"
+  ) +
+  geom_text(
+    aes(
+      label = scales::number(
+        valeur_stock,
+        accuracy = 1,
+        decimal.mark = ",",
+        big.mark = " ",
+        suffix = " €"
+      )
+    ),
+    hjust = -0.1,
+    size = 3.5
+  ) +
+  coord_flip() +
+  scale_y_continuous(
+    labels = scales::label_number(
+      decimal.mark = ",",
+      big.mark = " ",
+      suffix = " €"
+    ),
+    expand = expansion(
+      mult = c(0, 0.20)
+    )
+  ) +
+  labs(
+    x = NULL,
+    y = "Valorisation nette au prix d'achat"
+  ) +
+  theme_minimal() +
+  theme(
+    panel.grid.minor = element_blank()
+  )
+
+
+# Slide 14 ------------------------------------------------------------
+
+## Calculer la marge unitaire moyenne par type de produit
+
+marge_type_presentation <- df_presentation |>
+  filter(
+    !is.na(type_produit),
+    !is.na(marge_unitaire_ht)
+  ) |>
+  group_by(type_produit) |>
+  summarise(
+    marge_unitaire_moyenne = mean(
+      marge_unitaire_ht,
+      na.rm = TRUE
+    ),
+    .groups = "drop"
+  ) |>
+  arrange(
+    desc(marge_unitaire_moyenne)
+  )
+
+
+## Calculer les indicateurs principaux de marge
+
+kpi_marge_presentation <- df_presentation |>
+  summarise(
+    marge_totale_octobre = sum(
+      marge_totale_ht,
+      na.rm = TRUE
+    ),
+
+    references_marge_negative = sum(
+      marge_unitaire_ht < 0,
+      na.rm = TRUE
+    )
+  )
+
+
+## Créer le graphique de la marge moyenne par type
+
+graphique_marge_type_presentation <- ggplot(
+  marge_type_presentation,
+  aes(
+    x = reorder(
+      type_produit,
+      marge_unitaire_moyenne
+    ),
+    y = marge_unitaire_moyenne
+  )
+) +
+  geom_col(
+    fill = "#4C86B7"
+  ) +
+  geom_text(
+    aes(
+      label = scales::number(
+        marge_unitaire_moyenne,
+        accuracy = 0.01,
+        decimal.mark = ",",
+        big.mark = " ",
+        suffix = " €"
+      )
+    ),
+    hjust = -0.1,
+    size = 3.5
+  ) +
+  coord_flip() +
+  scale_y_continuous(
+    labels = scales::label_number(
+      accuracy = 1,
+      decimal.mark = ",",
+      big.mark = " ",
+      suffix = " €"
+    ),
+    expand = expansion(
+      mult = c(0, 0.18)
+    )
+  ) +
+  labs(
+    x = NULL,
+    y = "Marge unitaire moyenne"
+  ) +
+  theme_minimal() +
+  theme(
+    panel.grid.minor = element_blank()
+  )
+
+# Slide 15 ------------------------------------------------------------
+
+## Calculer les corrélations entre les principaux indicateurs
+
+donnees_correlation_presentation <- df_presentation |>
+  select(
+    prix_vente_corrige_ht,
+    quantite_vendue_octobre,
+    chiffre_affaires_ht,
+    quantite_en_stock,
+    couverture_estimee_mois
+  )
+
+matrice_correlation_presentation <- donnees_correlation_presentation |>
+  cor(
+    use = "pairwise.complete.obs"
+  )
+
+resume_correlation_presentation <- tibble::tibble(
+  correlation_prix_ventes =
+    matrice_correlation_presentation[
+      "prix_vente_corrige_ht",
+      "quantite_vendue_octobre"
+    ],
+
+  correlation_prix_ca =
+    matrice_correlation_presentation[
+      "prix_vente_corrige_ht",
+      "chiffre_affaires_ht"
+    ],
+
+  correlation_stock_ventes =
+    matrice_correlation_presentation[
+      "quantite_en_stock",
+      "quantite_vendue_octobre"
+    ]
+)
+
+## Préparer les données de la heatmap
+
+noms_correlation <- c(
+  prix_vente_corrige_ht = "Prix de vente",
+  quantite_vendue_octobre = "Quantités vendues",
+  chiffre_affaires_ht = "Chiffre d'affaires",
+  quantite_en_stock = "Stock",
+  couverture_estimee_mois = "Couverture"
+)
+
+correlation_longue_presentation <- as.data.frame(
+  matrice_correlation_presentation
+) |>
+  tibble::rownames_to_column("variable_1") |>
+  tidyr::pivot_longer(
+    cols = -variable_1,
+    names_to = "variable_2",
+    values_to = "correlation"
+  ) |>
+  mutate(
+    variable_1 = recode(
+      variable_1,
+      !!!noms_correlation
+    ),
+    variable_2 = recode(
+      variable_2,
+      !!!noms_correlation
+    )
+  )
+
+## Créer la heatmap des corrélations
+
+graphique_correlation_presentation <- ggplot(
+  correlation_longue_presentation,
+  aes(
+    x = variable_2,
+    y = variable_1,
+    fill = correlation
+  )
+) +
+  geom_tile(
+    color = "white"
+  ) +
+  geom_text(
+    aes(
+      label = scales::number(
+        correlation,
+        accuracy = 0.01,
+        decimal.mark = ","
+      )
+    ),
+    size = 3
+  ) +
+  scale_fill_gradient2(
+    low = "#B85450",
+    mid = "white",
+    high = "#4C86B7",
+    midpoint = 0,
+    limits = c(-1, 1)
+  ) +
+  labs(
+    x = NULL,
+    y = NULL,
+    fill = "Corrélation"
+  ) +
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(
+      angle = 45,
+      hjust = 1
+    ),
+    panel.grid = element_blank()
+  )
+
+```
+
+::: {.slide-couverture}
+
+::: {.titre-projet}
+Projet 6 – Optimisez la gestion des données d'une boutique avec R ou Python
+:::
+
+::: {.titre-bottleneck}
+# Analyse BottleNeck
+:::
+
+::: {.pied-couverture}
+::: {.auteur}
+Vincent Dallongeville
+:::
+
+::: {.date-presentation}
+18/09/2026
+:::
+:::
+
+:::
+
+## Contexte et objectif
+
+BottleNeck souhaite fiabiliser les données produits et disposer
+d'indicateurs fiables pour piloter les ventes, les stocks et les marges.
+
+- **Consolider** les données issues de l'ERP, du site Web et de la table de liaison.
+- **Contrôler** la qualité des identifiants, des prix, des stocks et des statuts de disponibilité.
+- **Analyser** les ventes d'octobre, les prix, les stocks et les marges.
+- **Identifier** les anomalies susceptibles de fausser les indicateurs.
+- **Recommander** des règles de contrôle pour fiabiliser les données et leurs échanges.
+
+## Analyses exploratoires – Sources et Périmètre
+
+| Fichier        | Origine         | Contenu principal                              |
+|----------------|-----------------|------------------------------------------------|
+| erp.xlsx       | ERP interne     | Références, prix, stocks, statuts              |
+| web.xlsx       | Export WooCommerce | Fiches produits, ventes d'octobre           |
+| liaison.xlsx   | Correspondance  | Lien entre product_id (ERP) et id_web (Web)    |
+
+
+Périmètre : ventes et stock sur le mois d'octobre, tous produits actifs.
+
+## Analyses exploratoires – Démarche générale
+
+<div class="frise">
+<span>1. Import</span>
+<span>2. Contrôles</span>
+<span>3. Nettoyage</span>
+<span>4. Consolidation</span>
+<span>5. Analyses</span>
+</div>
+
+## Consolidation – Contrôle de l'export Web
+
+::: {.columns}
+::: {.column width="50%"}
+![Export Web – lignes attachment et produits sans SKU](img/web_export_errors.png)
+:::
+
+::: {.column width="50%"}
+Principaux problèmes identifiés :
+
+- Lignes `attachment` : pièces jointes (images) et non produits, à exclure des analyses.
+- 4 fiches produit sans SKU : impossibles à relier proprement à l'ERP via la table de liaison.
+- Risque de jointures incorrectes et de sur-estimation du nombre de produits si on ne filtre pas par `post_type = "product"`.
+- Autres problèmes (dates, colonnes techniques, etc.).
+:::
+:::
+
+## Consolidation – Contrôles ERP
+
+::: {.columns}
+::: {.column width="50%"}
+![Contrôles ERP – prix et stocks négatifs, incohérences de statut](img/erp_controles_prix.png)
+:::
+
+::: {.column width="50%"}
+Principaux problèmes identifiés :
+
+- 3 prix de vente négatifs : inutilisables tels quels pour le calcul du CA et de la marge.
+- 2 quantités de stock négatives : cohérentes avec des préventes / décalages, mais à interpréter avec prudence.
+- Écarts entre `stock_status` (déclaré) et le statut calculé à partir de `stock_quantity`.
+- Produits avec stock positif non proposés sur le Web, et inversement.
+:::
+:::
+
+## Consolidation – Arbitrages de préparation
+
+::: {.columns}
+::: {.column width="42%"}
+  ### Problèmes
+
+- Prix de vente négatifs.
+- Stocks négatifs.
+- Statuts incohérents.
+- Produits sans SKU.
+- Lignes `attachment`.
+:::
+
+::: {.column width="16%"}
+```{=html}
+<div class="decision-arrow">→</div>
+```
+:::
+
+::: {.column width="42%"}
+  ### Décisions
+
+- Prix conservés + colonne corrigée.
+- Stocks conservés, interprétation prudente.
+- Statut source conservé + contrôle calculé.
+- Produits sans SKU exclus de la consolidation.
+- Lignes `attachment` exclues.
+:::
+:::
+
+## Consolidation – Consolidation Web–ERP
+
+<div class="schema-rel">
+<div class="box web">
+<div class="box-title">web_analytique</div>
+<div class="box-field">sku</div>
+<div class="box-field">post_title</div>
+<div class="box-field">product_type</div>
+<div class="box-field">total_sales</div>
+</div>
+<div class="arrow">→</div>
+<div class="box liaison">
+<div class="box-title">liaison</div>
+<div class="box-field">sku</div>
+<div class="box-field">id_web</div>
+<div class="box-field">product_id</div>
+</div>
+<div class="arrow">→</div>
+<div class="box erp">
+<div class="box-title">erp_analytique</div>
+<div class="box-field">product_id</div>
+<div class="box-field">prix_vente</div>
+<div class="box-field">quantite_stock</div>
+<div class="box-field">statut_stock</div>
+</div>
+</div>
+<div class="schema-legend">
+Jointure : web_analytique.sku → liaison.sku → liaison.product_id → erp_analytique.product_id
+</div>
+
+## Analyses univariées du prix - Distribution des prix de vente
+
+::: {.columns}
+
+::: {.column width="68%"}
+
+```{r}
+#| label: histogramme_prix_presentation
+#| echo: false
+#| fig-width: 9
+#| fig-height: 5
+
+graphique_distribution_prix
+```
+
+:::
+
+::: {.column width="32%"}
+
+  ### Prix de vente corrigés
+
+- Minimum : `r scales::number(resume_prix_presentation$minimum, accuracy = 0.01, decimal.mark = ",", big.mark = " ")` €
+- Médiane : `r scales::number(resume_prix_presentation$mediane, accuracy = 0.01, decimal.mark = ",", big.mark = " ")` €
+- Moyenne : `r scales::number(resume_prix_presentation$moyenne, accuracy = 0.01, decimal.mark = ",", big.mark = " ")` €
+- Maximum : `r scales::number(resume_prix_presentation$maximum, accuracy = 0.01, decimal.mark = ",", big.mark = " ")` €
+
+:::
+
+:::
+
+## Analyses univariées du prix - Dispersion et valeurs atypiques
+
+```{r}
+#| label: boxplot_prix_presentation
+#| echo: false
+#| fig-width: 10
+#| fig-height: 5.5
+
+graphique_boxplot_prix
+```
+
+La distribution est asymétrique : quelques références haut de gamme présentent des prix nettement supérieurs au reste du catalogue.
+
+
+## Analyses complémentaires - Résultats commerciaux
+
+::: {.columns}
+
+::: {.column width="33.33%"}
+
+<div class="kpi-circle">
+  <div class="kpi-value">
+    `r scales::number(kpi_commerciaux$ca_total_ht, accuracy = 0.01, decimal.mark = ",", big.mark = " ")` €
+  </div>
+  <div class="kpi-label">
+    Chiffre d'affaires HT en octobre
+  </div>
+</div>
+
+:::
+
+::: {.column width="33.33%"}
+
+<div class="kpi-circle">
+  <div class="kpi-value">
+    `r scales::number(kpi_commerciaux$quantites_vendues, accuracy = 1, big.mark = " ")`
+  </div>
+  <div class="kpi-label">
+    Unités vendues en octobre
+  </div>
+</div>
+
+:::
+
+::: {.column width="33.33%"}
+
+<div class="kpi-circle">
+  <div class="kpi-value">
+    `r scales::number(kpi_commerciaux$references_vendues, accuracy = 1, big.mark = " ")`
+  </div>
+  <div class="kpi-label">
+    Références vendues sur `r kpi_commerciaux$references_catalogue`
+  </div>
+</div>
+
+:::
+
+:::
+
+## Analyses complémentaires - Contribution et concentration des ventes
+
+::: {.columns}
+
+::: {.column width="68%"}
+
+```{r}
+#| label: top_ca_presentation
+#| echo: false
+#| fig-width: 9
+#| fig-height: 5.5
+
+graphique_top_ca_presentation
+```
+
+:::
+
+::: {.column width="32%"}
+
+  ### Seuil des 80 %
+
+**Chiffre d'affaires**
+
+- `r resume_contribution_presentation$references_80_ca` références
+- `r scales::percent(resume_contribution_presentation$part_catalogue_80_ca, accuracy = 0.1, decimal.mark = ",")` du catalogue
+
+**Quantités vendues**
+
+- `r resume_contribution_presentation$references_80_quantite` références
+- `r scales::percent(resume_contribution_presentation$part_catalogue_80_quantite, accuracy = 0.1, decimal.mark = ",")` du catalogue
+
+:::
+
+:::
+
+Les ventes sont réparties sur une part importante du catalogue : la règle indicative des 80/20 n'est observée ni en chiffre d'affaires ni en quantité.
+
+## Analyses complémentaires - Valorisation et couverture des stocks
+
+::: {.columns}
+
+::: {.column width="68%"}
+
+```{r}
+#| label: valorisation_stock_presentation
+#| echo: false
+#| fig-width: 9
+#| fig-height: 5.5
+
+graphique_valorisation_type_presentation
+```
+
+:::
+
+::: {.column width="32%"}
+
+  ### Valorisation totale
+
+`r scales::number(kpi_stock_presentation$valorisation_totale, accuracy = 0.01, decimal.mark = ",", big.mark = " ")` € HT
+
+  ### Couverture médiane
+
+`r scales::number(kpi_stock_presentation$couverture_mediane, accuracy = 0.1, decimal.mark = ",")` mois
+
+:::
+
+:::
+
+La moitié des références vendues dispose d'une couverture inférieure ou égale à la médiane affichée.
+
+## Analyses complémentaires - Marges commerciales
+
+::: {.columns}
+
+::: {.column width="68%"}
+
+```{r}
+#| label: marge_type_presentation
+#| echo: false
+#| fig-width: 9
+#| fig-height: 5.5
+
+graphique_marge_type_presentation
+```
+
+:::
+
+::: {.column width="32%"}
+
+### Marge totale
+
+`r scales::number(kpi_marge_presentation$marge_totale_octobre, accuracy = 0.01, decimal.mark = ",", big.mark = " ")` € HT
+
+### Marges négatives
+
+`r scales::number(kpi_marge_presentation$references_marge_negative, accuracy = 1, big.mark = " ")` références
+
+:::
+
+:::
+
+Les niveaux de marge diffèrent selon les catégories ; les références à marge négative nécessitent une vérification des prix de vente et d'achat.
+
+
+## Analyses complémentaires - Corrélations entre les indicateurs
+
+::: {.columns}
+
+::: {.column width="68%"}
+
+```{r}
+#| label: correlation_presentation
+#| echo: false
+#| fig-width: 9
+#| fig-height: 5.5
+
+graphique_correlation_presentation
+```
+
+:::
+
+::: {.column width="32%"}
+
+### Relations principales
+
+- Prix / ventes : `r scales::number(resume_correlation_presentation$correlation_prix_ventes, accuracy = 0.01, decimal.mark = ",")`
+- Prix / CA : `r scales::number(resume_correlation_presentation$correlation_prix_ca, accuracy = 0.01, decimal.mark = ",")`
+- Stock / ventes : `r scales::number(resume_correlation_presentation$correlation_stock_ventes, accuracy = 0.01, decimal.mark = ",")`
+
+:::
+
+:::
+
+Les corrélations décrivent des associations entre variables ; elles ne permettent pas à elles seules d'établir un lien de causalité.
+
+## Recommandations - Fiabiliser les données et les échanges
+
+| Problèmes regroupés | Actions recommandées |
+|---|---|
+| Prix négatifs ou atypiques | Bloquer les valeurs négatives et déclencher une validation pour les prix atypiques |
+| Stocks négatifs ou statuts incohérents | Séparer le stock physique des préventes et calculer automatiquement le statut depuis la quantité |
+| Disponibilité Web incohérente avec le stock | Mettre en place un contrôle automatique avant publication ou mise à jour |
+| SKU manquants, dupliqués ou lignes techniques | Rendre le SKU obligatoire et unique ; exclure les lignes `attachment` des exports produits |
+| Correspondances ERP–Web incomplètes | Contrôler l'unicité, la complétude et la réciprocité de la table de liaison |
+| Indicateurs absents des sources | Automatiser le calcul du CA, de la marge, du taux de marge et de la valorisation |
+

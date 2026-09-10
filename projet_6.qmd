@@ -1,0 +1,2405 @@
+---
+title: "Projet 6 - Analyse BottleNeck"
+author: "Vincent Dallongeville"
+date: "`r Sys.Date()`"
+format:
+  html:
+    toc: true
+    toc-depth: 3
+    code-fold: false
+editor:
+  markdown:
+    wrap: 72
+---
+
+# Analyse du stock et des ventes du site BottleNeck
+
+## Objectif du notebook
+
+Ce notebook analyse les ventes, les prix, les stocks et la marge des produits BottleNeck à partir de trois fichiers : ERP, liaison et Web.
+
+Les données brutes sont conservées sans modification. Les étapes de préparation et les contrôles de qualité sont réalisés en R afin de documenter les choix effectués avant les analyses.
+
+# Étape 1 — Importation des packages et des données
+
+## 1.1 Chargement des packages
+
+```{r}
+#| label: chargement_packages
+#| message: false
+#| warning: false
+
+library(readxl)
+library(writexl)
+library(tidyverse)
+library(janitor)
+library(reshape2)
+```
+
+## 1.2 Import des données
+
+```{r}
+#| label: import_donnees
+
+# Import des trois fichiers sources, sans modifier les données brutes
+erp_raw <- read_excel("data_raw/erp.xlsx")
+liaison_raw <- read_excel("data_raw/liaison.xlsx")
+web_raw <- read_excel("data_raw/web.xlsx")
+```
+
+## 1.3 Structure des données sources
+
+```{r}
+#| label: structure_donnees
+
+structure_erp <- tibble(
+  table = "erp_raw",
+  nombre_lignes = nrow(erp_raw),
+  nombre_colonnes = ncol(erp_raw)
+)
+
+structure_liaison <- tibble(
+  table = "liaison_raw",
+  nombre_lignes = nrow(liaison_raw),
+  nombre_colonnes = ncol(liaison_raw)
+)
+
+structure_web <- tibble(
+  table = "web_raw",
+  nombre_lignes = nrow(web_raw),
+  nombre_colonnes = ncol(web_raw)
+)
+
+structure_sources <- bind_rows(
+  structure_erp,
+  structure_liaison,
+  structure_web
+)
+
+knitr::kable(structure_sources)
+```
+
+# Étape 2 — Analyse exploratoire et préparation des données
+
+## 2.1 Analyse exploratoire du fichier `erp.xlsx`
+
+Cette étape vérifie la structure de l'ERP, l'unicité des identifiants, la qualité des prix et la cohérence des stocks.
+
+### 2.1.1 Dimensions, structure et aperçu des données
+
+```{r}
+#| label: dimensions_structure_erp
+
+# Nombre de lignes et de colonnes du fichier ERP
+dimensions_erp <- tibble(
+  nombre_lignes = nrow(erp_raw),
+  nombre_colonnes = ncol(erp_raw)
+)
+
+knitr::kable(dimensions_erp)
+
+# Affichage des types de variables et d'un aperçu des données
+glimpse(erp_raw)
+
+# Aperçu limité aux colonnes principales
+knitr::kable(head(erp_raw |> select(product_id, onsale_web, price, stock_quantity, stock_status, purchase_price)))
+```
+
+### 2.1.2 Vérification de la clé `product_id`
+
+```{r}
+#| label: doublons_product_id_erp
+
+# Vérification de l'unicité de la clé product_id
+doublons_product_id_erp <- erp_raw |>
+  count(product_id, sort = TRUE) |>
+  filter(n > 1)
+
+knitr::kable(doublons_product_id_erp)
+```
+
+```{r}
+#| label: controle_product_id_erp
+
+# Vérification des valeurs manquantes et du nombre d'identifiants distincts
+controle_product_id_erp <- erp_raw |>
+  summarise(
+    product_id_manquants = sum(is.na(product_id)),
+    product_id_distincts = n_distinct(product_id, na.rm = TRUE),
+    nombre_lignes = n()
+  )
+
+knitr::kable(controle_product_id_erp)
+```
+
+La colonne `product_id` est utilisée comme identifiant unique des
+produits dans l'ERP. Elle servira ensuite à relier les informations ERP
+à la table de liaison.
+
+### 2.1.3 Contrôle de la variable `stock_status`
+
+La colonne `stock_status` indique si un produit est déclaré disponible
+(`instock`) ou indisponible (`outofstock`). Cette information est liée à
+la colonne `stock_quantity`, qui indique le nombre d'unités disponibles.
+
+#### Valeurs distinctes de `stock_status`
+
+```{r}
+#| label: distribution_stock_status
+
+# Affichage des valeurs distinctes de stock_status et de leur fréquence
+distribution_stock_status <- erp_raw |>
+  count(stock_status, sort = TRUE)
+
+knitr::kable(distribution_stock_status)
+```
+
+#### Création de `stock_status_2`
+
+Selon les consignes du projet, une seconde colonne est créée à partir de
+la quantité de stock :
+
+- si `stock_quantity` est égal à 0, `stock_status_2` prend la valeur
+  `outofstock` ;
+- sinon, `stock_status_2` prend la valeur `instock`.
+
+```{r}
+#| label: creation_stock_status_2
+
+# Création d'une colonne de contrôle à partir de stock_quantity
+erp_stock_controle <- erp_raw |>
+  mutate(
+    stock_status_2 = if_else(
+      stock_quantity == 0,
+      "outofstock",
+      "instock"
+    )
+  )
+
+knitr::kable(head(erp_stock_controle |> select(product_id, stock_quantity, stock_status, stock_status_2)))
+```
+
+#### Comparaison des deux statuts
+
+```{r}
+#| label: controle_stock_status
+
+# Comparaison entre le statut ERP et le statut calculé à partir du stock
+controle_stock_status <- erp_stock_controle |>
+  mutate(
+    statut_coherent = stock_status == stock_status_2
+  ) |>
+  count(
+    stock_status,
+    stock_status_2,
+    statut_coherent,
+    sort = TRUE
+  )
+
+knitr::kable(controle_stock_status)
+```
+
+```{r}
+#| label: resume_coherence_stock_status
+
+# Synthèse du nombre de lignes cohérentes et incohérentes
+resume_coherence_stock_status <- erp_stock_controle |>
+  mutate(
+    statut_coherent = stock_status == stock_status_2
+  ) |>
+  summarise(
+    nombre_produits = n(),
+    lignes_coherentes = sum(statut_coherent),
+    lignes_incoherentes = sum(!statut_coherent)
+  )
+
+knitr::kable(resume_coherence_stock_status)
+```
+
+#### Identification des incohérences
+
+```{r}
+#| label: incoherences_stock_status
+
+# Identification des produits pour lesquels les deux statuts sont différents
+incoherences_stock_status <- erp_stock_controle |>
+  filter(stock_status != stock_status_2) |>
+  select(
+    product_id,
+    onsale_web,
+    price,
+    purchase_price,
+    stock_quantity,
+    stock_status,
+    stock_status_2
+  )
+
+knitr::kable(incoherences_stock_status)
+```
+
+La comparaison permet d'identifier les produits dont le statut renseigné
+dans l'ERP diffère du statut calculé à partir de `stock_quantity`, selon
+la règle imposée par le template.
+
+Cette colonne sert uniquement à comparer le statut déclaré avec une règle calculée à partir de la quantité de stock. Elle n'est pas conservée dans la table analytique finale, car elle est redondante avec le statut d'origine.
+
+### 2.1.4 Contrôle des prix de vente
+
+```{r}
+#| label: controle_prix_vente
+
+# Vérification des prix de vente : valeurs manquantes, nulles, négatives, minimum et maximum
+controle_prix_vente <- erp_raw |>
+  summarise(
+    prix_vente_manquants = sum(is.na(price)),
+    prix_vente_nuls = sum(price == 0, na.rm = TRUE),
+    prix_vente_negatifs = sum(price < 0, na.rm = TRUE),
+    prix_vente_min = min(price, na.rm = TRUE),
+    prix_vente_max = max(price, na.rm = TRUE)
+  )
+
+knitr::kable(controle_prix_vente)
+```
+
+```{r}
+#| label: prix_vente_negatifs
+
+# Identification des produits présentant un prix de vente négatif
+prix_vente_negatifs <- erp_raw |>
+  filter(price < 0) |>
+  select(
+    product_id,
+    onsale_web,
+    price,
+    purchase_price,
+    stock_quantity,
+    stock_status
+  )
+
+knitr::kable(prix_vente_negatifs)
+```
+
+Trois produits présentent un prix de vente négatif. Un prix négatif ne
+peut pas être utilisé tel quel dans les calculs de chiffre d'affaires ou
+de marge.
+
+L'hypothèse retenue est qu'il s'agit d'erreurs de saisie. Dans la table
+ERP analytique, ces valeurs seront corrigées dans une nouvelle colonne
+`prix_vente_corrige`, en utilisant leur valeur positive. Le prix
+d'origine restera conservé, ainsi qu'un indicateur permettant
+d'identifier les produits concernés.
+
+### 2.1.5 Contrôle des stocks
+
+```{r}
+#| label: controle_stock
+
+# Vérification des quantités de stock : valeurs manquantes, négatives, nulles, minimum et maximum
+controle_stock <- erp_raw |>
+  summarise(
+    stock_manquant = sum(is.na(stock_quantity)),
+    stock_negatif = sum(stock_quantity < 0, na.rm = TRUE),
+    stock_nul = sum(stock_quantity == 0, na.rm = TRUE),
+    stock_min = min(stock_quantity, na.rm = TRUE),
+    stock_max = max(stock_quantity, na.rm = TRUE)
+  )
+
+knitr::kable(controle_stock)
+```
+
+```{r}
+#| label: stocks_negatifs
+
+# Identification des produits présentant un stock négatif
+stocks_negatifs <- erp_raw |>
+  filter(stock_quantity < 0) |>
+  select(
+    product_id,
+    onsale_web,
+    price,
+    purchase_price,
+    stock_quantity,
+    stock_status
+  )
+
+knitr::kable(stocks_negatifs)
+```
+
+Deux produits présentent une quantité de stock négative. Cette situation
+peut correspondre à des ventes, des préventes ou des précommandes
+enregistrées avant la réception du réapprovisionnement correspondant.
+
+J'ai choisi de conserver ces valeurs négatives dans la table analytique.
+Elles permettent de préserver l'information source et de conserver la
+trace de ventes déjà enregistrées : lors de la réception de la
+marchandise, le stock peut revenir à zéro, mais les ventes, le chiffre
+d'affaires et la marge associés restent acquis.
+
+Les produits concernés restent donc inclus dans les analyses
+commerciales de quantités vendues, chiffre d'affaires et marge. En
+revanche, ils devront être interprétés avec prudence dans les analyses
+portant sur le niveau de stock réellement disponible, car une quantité
+négative ne représente pas un stock physique.
+
+### 2.1.6 Contrôle de l'indicateur `onsale_web`
+
+La variable `onsale_web` indique si un produit est proposé à la vente
+sur le site Web :
+
+- `1` : produit proposé à la vente en ligne ;
+- `0` : produit non proposé à la vente en ligne.
+
+```{r}
+#| label: distribution_onsale_web
+
+# Vérification des valeurs de l'indicateur de disponibilité Web
+distribution_onsale_web <- erp_raw |>
+  count(onsale_web, sort = TRUE)
+
+knitr::kable(distribution_onsale_web)
+```
+
+```{r}
+#| label: valeurs_invalides_onsale_web
+
+# Identification d'éventuelles valeurs différentes de 0 et 1
+valeurs_invalides_onsale_web <- erp_raw |>
+  filter(!onsale_web %in% c(0, 1)) |>
+  select(
+    product_id,
+    onsale_web,
+    price,
+    stock_quantity,
+    stock_status,
+    purchase_price
+  )
+
+knitr::kable(valeurs_invalides_onsale_web)
+```
+
+```{r}
+#| label: coherence_onsale_stock
+
+# Identification des situations atypiques entre disponibilité Web et stock
+coherence_onsale_stock <- erp_raw |>
+  filter(
+    (onsale_web == 1 & stock_quantity == 0) |
+      (onsale_web == 0 & stock_quantity > 0)
+  ) |>
+  mutate(
+    situation = case_when(
+      onsale_web == 1 & stock_quantity == 0 ~
+        "Produit proposé sur le Web avec stock nul",
+      onsale_web == 0 & stock_quantity > 0 ~
+        "Produit non proposé sur le Web avec stock positif"
+    )
+  ) |>
+  select(
+    product_id,
+    onsale_web,
+    stock_quantity,
+    stock_status,
+    situation
+  )
+
+knitr::kable(coherence_onsale_stock)
+```
+
+Les produits non proposés sur le Web avec un stock positif sont
+conservés tels quels. Ils peuvent être réservés à un autre canal de
+vente ou correspondre à un choix commercial.
+
+Les produits proposés à la vente en ligne avec un stock nul sont
+également conservés. Ils peuvent correspondre à de la prévente, de la
+précommande ou à un décalage de mise à jour du stock. Ces cas sont
+signalés comme des limites pour l'interprétation de la disponibilité sur
+le site Web.
+
+### 2.1.7 Contrôle des prix d'achat
+
+```{r}
+#| label: controle_prix_achat
+
+# Vérification des prix d'achat : valeurs manquantes, nulles, négatives, minimum et maximum
+controle_prix_achat <- erp_raw |>
+  summarise(
+    prix_achat_manquants = sum(is.na(purchase_price)),
+    prix_achat_nuls = sum(purchase_price == 0, na.rm = TRUE),
+    prix_achat_negatifs = sum(purchase_price < 0, na.rm = TRUE),
+    prix_achat_min = min(purchase_price, na.rm = TRUE),
+    prix_achat_max = max(purchase_price, na.rm = TRUE)
+  )
+
+knitr::kable(controle_prix_achat)
+```
+
+### 2.1.8 Création de la table ERP analytique
+
+La table `erp_analytique` contient les variables nécessaires aux
+analyses commerciales, de marge et de stock.
+
+Les prix négatifs sont corrigés dans une colonne distincte,
+`prix_vente_corrige`. Les stocks négatifs sont conservés sans
+modification dans `quantite_stock`, car ils peuvent traduire une
+prévente ou une précommande.
+
+```{r}
+#| label: creation_erp_analytique
+
+erp_analytique <- erp_raw |>
+  rename(
+    prix_vente = price,
+    quantite_stock = stock_quantity,
+    statut_stock = stock_status,
+    prix_achat = purchase_price
+  ) |>
+  mutate(
+    prix_negatif = if_else(prix_vente < 0, 1L, 0L),
+    prix_vente_corrige = if_else(
+      prix_vente < 0,
+      -prix_vente,
+      prix_vente
+    )
+  ) |>
+  select(
+    product_id,
+    onsale_web,
+    prix_vente,
+    prix_vente_corrige,
+    prix_negatif,
+    prix_achat,
+    quantite_stock,
+    statut_stock
+  )
+
+knitr::kable(head(erp_analytique))
+```
+
+```{r}
+#| label: controle_erp_analytique
+
+# Vérification de la table ERP analytique après préparation
+controle_erp_analytique <- erp_analytique |>
+  summarise(
+    nombre_lignes = n(),
+    nombre_colonnes = ncol(erp_analytique),
+    product_id_manquants = sum(is.na(product_id)),
+    product_id_distincts = n_distinct(product_id, na.rm = TRUE),
+    prix_negatifs_origine = sum(prix_negatif),
+    prix_vente_corrige_min = min(prix_vente_corrige, na.rm = TRUE),
+    stocks_negatifs = sum(quantite_stock < 0, na.rm = TRUE)
+  )
+
+knitr::kable(controle_erp_analytique)
+```
+
+## 2.2 Analyse exploratoire du fichier `web.xlsx`
+
+L'export Web contient les données issues du site WordPress /
+WooCommerce. Il comporte des fiches produit, mais également des éléments
+techniques, notamment des pièces jointes telles que des images.
+
+L'objectif de cette étape est d'identifier les lignes correspondant
+réellement à des produits, de contrôler les identifiants SKU et de
+conserver uniquement les variables nécessaires aux analyses des ventes
+et aux jointures avec les données ERP.
+
+### 2.2.1 Dimensions, structure et aperçu des données
+
+```{r}
+#| label: dimensions_structure_web
+
+# Nombre de lignes et de colonnes du fichier Web
+dimensions_web <- tibble(
+  nombre_lignes = nrow(web_raw),
+  nombre_colonnes = ncol(web_raw)
+)
+
+knitr::kable(dimensions_web)
+
+# Affichage des types de variables et d'un aperçu des données
+glimpse(web_raw)
+
+# Aperçu limité aux colonnes principales
+knitr::kable(head(web_raw |> select(sku, post_title, product_type, total_sales, post_status)))
+```
+
+### 2.2.2 Types de contenu présents dans l'export Web
+
+```{r}
+#| label: distribution_post_type
+
+# Identification des différents types de contenu dans l'export WordPress
+distribution_post_type <- web_raw |>
+  count(post_type, sort = TRUE)
+
+knitr::kable(distribution_post_type)
+```
+
+L'export Web contient plusieurs types de contenu. Les lignes dont
+`post_type` est égal à `product` correspondent aux fiches produit. Les
+lignes de type `attachment` correspondent à des pièces jointes,
+notamment des images associées aux produits.
+
+Seules les lignes de type `product` sont conservées pour les analyses.
+Inclure les pièces jointes dans les jointures pourrait créer des
+doublons et gonfler artificiellement les quantités vendues ou le chiffre
+d'affaires.
+
+### 2.2.3 Création de la table des fiches produit
+
+```{r}
+#| label: creation_web_produits_brut
+
+# Conservation des seules fiches produit
+web_produits_brut <- web_raw |>
+  filter(post_type == "product")
+
+# Aperçu limité aux colonnes principales
+knitr::kable(head(web_produits_brut |> select(sku, post_title, product_type, total_sales, post_status)))
+```
+
+### 2.2.4 Contrôle des SKU
+
+Le SKU est l'identifiant retenu pour relier les ventes Web à la table de
+liaison, puis aux informations de prix, de marge et de stock présentes
+dans l'ERP.
+
+#### Produits sans SKU
+
+```{r}
+#| label: sku_manquants_produits
+
+# Identification des fiches produit sans SKU
+sku_manquants_produits <- web_produits_brut |>
+  filter(is.na(sku)) |>
+  select(
+    sku,
+    post_title,
+    product_type,
+    total_sales,
+    post_status,
+    post_name,
+    guid
+  )
+
+knitr::kable(sku_manquants_produits)
+```
+
+```{r}
+#| label: profil_sku_manquants
+
+# Synthèse des ventes associées aux produits sans SKU
+profil_sku_manquants <- sku_manquants_produits |>
+  summarise(
+    nombre_produits_sans_sku = n(),
+    ventes_positives = sum(total_sales > 0, na.rm = TRUE),
+    quantite_vendue_positive = sum(
+      if_else(total_sales > 0, total_sales, 0),
+      na.rm = TRUE
+    ),
+    ventes_negatives = sum(total_sales < 0, na.rm = TRUE),
+    quantite_ventes_negative = sum(
+      if_else(total_sales < 0, total_sales, 0),
+      na.rm = TRUE
+    )
+  )
+
+knitr::kable(profil_sku_manquants)
+```
+
+Les quatre fiches produit sans SKU ne peuvent pas être reliées automatiquement à l'ERP. Elles sont donc exclues de la table Web analytique et signalées comme une limite de couverture des données.
+
+#### Analyse complémentaire des identifiants présents dans `guid`
+
+```{r}
+#| label: identifiants_guid_sans_sku
+
+# Extraction à titre de contrôle des identifiants WordPress présents dans guid
+identifiants_guid_sans_sku <- sku_manquants_produits |>
+  mutate(
+    product_id_web = as.numeric(
+      str_extract(guid, "(?<=p=)[0-9]+")
+    )
+  ) |>
+  select(
+    post_title,
+    total_sales,
+    product_id_web
+  )
+
+knitr::kable(identifiants_guid_sans_sku)
+```
+
+Ce contrôle confirme qu'un identifiant WordPress est présent dans le
+champ `guid` des produits sans SKU. Il n'est pas utilisé comme clé de
+jointure dans les analyses, afin de ne pas mélanger deux règles de
+rapprochement différentes.
+
+#### SKU dupliqués
+
+```{r}
+#| label: doublons_sku_produits
+
+# Vérification de l'unicité des SKU renseignés parmi les fiches produit
+doublons_sku_produits <- web_produits_brut |>
+  filter(!is.na(sku)) |>
+  mutate(
+    sku = as.character(sku)
+  ) |>
+  count(sku, sort = TRUE) |>
+  filter(n > 1)
+
+knitr::kable(doublons_sku_produits)
+```
+
+Les doublons sont recherchés uniquement parmi les SKU renseignés. Les
+valeurs manquantes ne constituent pas un doublon de référence produit ;
+elles sont analysées séparément.
+
+### 2.2.5 Contrôle des variables techniques
+
+```{r}
+#| label: controle_colonnes_techniques_web
+
+# Vérification des variables techniques numériques
+controle_colonnes_techniques_web <- web_produits_brut |>
+  summarise(
+    virtual_min = min(virtual, na.rm = TRUE),
+    virtual_max = max(virtual, na.rm = TRUE),
+    downloadable_min = min(downloadable, na.rm = TRUE),
+    downloadable_max = max(downloadable, na.rm = TRUE),
+    rating_count_min = min(rating_count, na.rm = TRUE),
+    rating_count_max = max(rating_count, na.rm = TRUE),
+    average_rating_min = min(average_rating, na.rm = TRUE),
+    average_rating_max = max(average_rating, na.rm = TRUE),
+    menu_order_min = min(menu_order, na.rm = TRUE),
+    menu_order_max = max(menu_order, na.rm = TRUE),
+    comment_count_min = min(comment_count, na.rm = TRUE),
+    comment_count_max = max(comment_count, na.rm = TRUE)
+  )
+
+knitr::kable(controle_colonnes_techniques_web)
+```
+
+Les variables techniques dont les valeurs sont constantes ou sans
+utilité pour les analyses demandées ne sont pas conservées dans la table
+Web analytique.
+
+### 2.2.6 Contrôle des variables qualitatives
+
+```{r}
+#| label: distribution_tax_status
+
+distribution_tax_status <- web_produits_brut |>
+  count(tax_status, sort = TRUE)
+
+knitr::kable(distribution_tax_status)
+```
+
+```{r}
+#| label: distribution_post_status
+
+distribution_post_status <- web_produits_brut |>
+  count(post_status, sort = TRUE)
+
+knitr::kable(distribution_post_status)
+```
+
+```{r}
+#| label: distribution_comment_status
+
+distribution_comment_status <- web_produits_brut |>
+  count(comment_status, sort = TRUE)
+
+knitr::kable(distribution_comment_status)
+```
+
+```{r}
+#| label: distribution_ping_status
+
+distribution_ping_status <- web_produits_brut |>
+  count(ping_status, sort = TRUE)
+
+knitr::kable(distribution_ping_status)
+```
+
+```{r}
+#| label: distribution_product_type
+
+distribution_product_type <- web_produits_brut |>
+  count(product_type, sort = TRUE)
+
+knitr::kable(distribution_product_type)
+```
+
+La variable `tax_status` indique que les produits sont taxables.
+Toutefois, aucun taux de TVA n'est disponible dans les fichiers fournis.
+Les analyses de chiffre d'affaires, de marge et de valorisation seront
+donc réalisées en hors taxes (HT), sans calcul de TVA supplémentaire.
+
+La variable `product_type` est conservée car elle pourra être utilisée
+pour segmenter les analyses, notamment le taux de marge moyen par type
+de produit.
+
+### 2.2.7 Contrôle des colonnes vides
+
+```{r}
+#| label: controle_colonnes_vides_web
+
+# Comptage des valeurs manquantes dans les colonnes non retenues
+controle_colonnes_vides_web <- web_produits_brut |>
+  summarise(
+    tax_class_manquant = sum(is.na(tax_class)),
+    post_content_manquant = sum(is.na(post_content)),
+    post_password_manquant = sum(is.na(post_password)),
+    post_content_filtered_manquant = sum(is.na(post_content_filtered)),
+    post_mime_type_manquant = sum(is.na(post_mime_type))
+  )
+
+knitr::kable(controle_colonnes_vides_web)
+```
+
+### 2.2.8 Création de la table Web analytique
+
+Les variables suivantes sont conservées dans la table `web_analytique` :
+
+- `sku` : identifiant produit retenu comme clé de jointure vers la table
+  de liaison ;
+- `post_title` : libellé du produit ;
+- `product_type` : type de produit, utile aux segmentations ;
+- `total_sales` : quantité vendue au cours du mois d'octobre.
+
+Les dates Web correspondent à la création ou à la modification des fiches produit, et non aux dates de vente. Elles ne sont donc pas utilisées dans les analyses de ventes d'octobre.
+
+```{r}
+#| label: creation_web_analytique
+
+web_analytique <- web_produits_brut |>
+  filter(!is.na(sku)) |>
+  mutate(
+    sku = as.character(sku)
+  ) |>
+  select(
+    sku,
+    post_title,
+    product_type,
+    total_sales
+  )
+
+knitr::kable(head(web_analytique))
+```
+
+### 2.2.9 Contrôle de la table Web analytique
+
+```{r}
+#| label: controle_web_analytique
+
+# Vérification de la structure, des valeurs manquantes et de l'unicité de la clé SKU
+controle_web_analytique <- web_analytique |>
+  summarise(
+    nombre_lignes = n(),
+    nombre_colonnes = ncol(web_analytique),
+    sku_manquants = sum(is.na(sku)),
+    sku_distincts = n_distinct(sku, na.rm = TRUE),
+    sku_dupliques = sum(duplicated(sku))
+  )
+
+knitr::kable(controle_web_analytique)
+```
+
+## 2.3 Analyse exploratoire du fichier `liaison.xlsx`
+
+La table de liaison permet de faire correspondre les identifiants
+produits utilisés dans l'ERP (`product_id`) avec les identifiants
+produits utilisés sur le site Web (`id_web`).
+
+Elle joue un rôle central dans les analyses : les ventes sont associées
+au SKU Web, puis le SKU est relié à l'identifiant ERP grâce à cette
+table.
+
+### 2.3.1 Dimensions, structure et aperçu des données
+
+```{r}
+#| label: dimensions_structure_liaison
+
+# Nombre de lignes et de colonnes du fichier de liaison
+dimensions_liaison <- tibble(
+  nombre_lignes = nrow(liaison_raw),
+  nombre_colonnes = ncol(liaison_raw)
+)
+
+knitr::kable(dimensions_liaison)
+
+# Affichage des types de variables et d'un aperçu des données
+glimpse(liaison_raw)
+
+# Aperçu limité aux colonnes principales
+knitr::kable(head(liaison_raw |> select(id_web, product_id)))
+```
+
+### 2.3.2 Contrôle de l'identifiant ERP `product_id`
+
+```{r}
+#| label: controle_product_id_liaison
+
+# Vérification des valeurs manquantes et du nombre d'identifiants ERP distincts
+controle_product_id_liaison <- liaison_raw |>
+  summarise(
+    nombre_lignes = n(),
+    product_id_manquants = sum(is.na(product_id)),
+    product_id_distincts = n_distinct(product_id, na.rm = TRUE)
+  )
+
+knitr::kable(controle_product_id_liaison)
+```
+
+```{r}
+#| label: doublons_product_id_liaison
+
+# Vérification de l'unicité de la clé product_id dans la table de liaison
+doublons_product_id_liaison <- liaison_raw |>
+  count(product_id, sort = TRUE) |>
+  filter(n > 1)
+
+knitr::kable(doublons_product_id_liaison)
+```
+
+La colonne `product_id` est l'identifiant utilisé dans l'ERP. Elle doit
+être unique dans la table de liaison afin qu'un produit ERP ne soit
+associé qu'à un seul identifiant Web.
+
+### 2.3.3 Contrôle de l'identifiant Web `id_web`
+
+```{r}
+#| label: controle_id_web_liaison
+
+# Vérification des valeurs manquantes et du nombre d'identifiants Web distincts
+controle_id_web_liaison <- liaison_raw |>
+  summarise(
+    nombre_lignes = n(),
+    id_web_manquants = sum(is.na(id_web)),
+    id_web_distincts = n_distinct(id_web, na.rm = TRUE)
+  )
+
+knitr::kable(controle_id_web_liaison)
+```
+
+```{r}
+#| label: doublons_id_web_liaison
+
+# Vérification de l'unicité des identifiants Web renseignés
+doublons_id_web_liaison <- liaison_raw |>
+  filter(!is.na(id_web)) |>
+  mutate(
+    id_web = as.character(id_web)
+  ) |>
+  count(id_web, sort = TRUE) |>
+  filter(n > 1)
+
+knitr::kable(doublons_id_web_liaison)
+```
+
+La colonne `id_web` est l'identifiant utilisé pour relier la table de
+liaison à la table Web. Les identifiants renseignés doivent être uniques
+afin d'éviter qu'une même fiche produit Web soit associée à plusieurs
+références ERP.
+
+### 2.3.4 Références ERP sans identifiant Web
+
+```{r}
+#| label: product_id_sans_id_web
+#| echo: true
+
+# Identification des produits ERP ne possédant pas d'identifiant Web
+product_id_sans_id_web <- liaison_raw |>
+  filter(is.na(id_web)) |>
+  select(product_id)
+
+# Aperçu limité aux 10 premières références
+knitr::kable(head(product_id_sans_id_web, n = 10))
+```
+
+```{r}
+#| label: resume_product_id_sans_id_web
+#| echo: true
+
+# Synthèse du nombre de références ERP sans identifiant Web
+resume_product_id_sans_id_web <- liaison_raw |>
+  summarise(
+    nombre_references_erp = n(),
+    references_sans_id_web = sum(is.na(id_web)),
+    part_sans_id_web = round(
+      sum(is.na(id_web)) / n() * 100,
+      1
+    )
+  )
+
+knitr::kable(resume_product_id_sans_id_web)
+```
+
+Les références ERP sans `id_web` ne peuvent pas être rapprochées
+automatiquement des ventes Web. Elles peuvent correspondre à des
+produits non proposés sur le site, à des produits archivés ou à des
+correspondances absentes de la table de liaison.
+
+Ces références restent présentes dans les données ERP, mais elles ne
+pourront pas être intégrées aux analyses combinant les données de ventes
+Web, de prix, de marge et de stock. Cette limite sera prise en compte
+lors des jointures.
+
+### 2.3.5 Création de la table de liaison analytique
+
+La table `liaison_analytique` conserve uniquement les références
+disposant d'un identifiant Web. La colonne `id_web` est convertie en
+texte afin d'avoir le même type que la colonne `sku` de la table Web
+analytique.
+
+```{r}
+#| label: creation_liaison_analytique
+
+liaison_analytique <- liaison_raw |>
+  filter(!is.na(id_web)) |>
+  mutate(
+    id_web = as.character(id_web)
+  )
+
+knitr::kable(head(liaison_analytique |> select(id_web, product_id)))
+```
+
+```{r}
+#| label: controle_liaison_analytique
+
+# Vérification de la table de liaison après exclusion des id_web manquants
+controle_liaison_analytique <- liaison_analytique |>
+  summarise(
+    nombre_lignes = n(),
+    nombre_colonnes = ncol(liaison_analytique),
+    product_id_manquants = sum(is.na(product_id)),
+    product_id_distincts = n_distinct(product_id, na.rm = TRUE),
+    id_web_manquants = sum(is.na(id_web)),
+    id_web_distincts = n_distinct(id_web, na.rm = TRUE)
+  )
+
+knitr::kable(controle_liaison_analytique)
+```
+
+# Étape 3 — Contrôles des correspondances et table analytique principale
+
+Les tables analytiques (`erp_analytique`, `web_analytique`,
+`liaison_analytique`) ont été préparées à l'étape 2. Avant de réaliser
+les analyses commerciales, on contrôle les correspondances entre les
+clés de jointure, puis on crée une table analytique principale
+`df_analyse` en joignant les trois tables avec `*_join()` du tidyverse.
+
+## 3.1 — SKU Web sans correspondance dans la table de liaison
+
+```{r}
+#| label: sku_web_sans_liaison
+#| echo: true
+
+# SKU présents dans Web mais sans id_web correspondant dans la liaison
+sku_web_sans_liaison <- web_analytique |>
+  anti_join(
+    liaison_analytique,
+    by = c("sku" = "id_web")
+  )
+
+knitr::kable(sku_web_sans_liaison)
+```
+
+## 3.2 — Identifiants de liaison absents de la table Web
+
+```{r}
+#| label: id_web_liaison_sans_web
+#| echo: true
+
+# id_web présents dans la liaison mais sans SKU correspondant dans Web
+id_web_liaison_sans_web <- liaison_analytique |>
+  anti_join(
+    web_analytique,
+    by = c("id_web" = "sku")
+  )
+
+knitr::kable(id_web_liaison_sans_web)
+```
+
+Les analyses combinant les données Web et ERP porteront uniquement sur
+les références pour lesquelles le SKU Web et l'identifiant `id_web` de
+la table de liaison correspondent. Les références non appariées
+constituent une limite de couverture des données et ne seront pas
+intégrées aux calculs combinés.
+
+## 3.3 — Création de la table analytique principale `df_analyse`
+
+```{r}
+#| label: etape3_jointure_globale
+#| echo: true
+
+# On joint les trois tables analytiques :
+# 1) ERP → liaison (par product_id)
+# 2) puis résultat → Web (par id_web = sku)
+# inner_join(x, y, by = ...) garde uniquement les lignes
+# qui ont une correspondance dans les deux tables.
+
+df_analyse <- erp_analytique |>
+  inner_join(
+    liaison_analytique,
+    by = "product_id"
+  ) |>
+  inner_join(
+    web_analytique,
+    by = c("id_web" = "sku")
+  )
+
+# Affichage des premières lignes de la table fusionnée
+knitr::kable(head(df_analyse |> select(product_id, id_web, prix_vente_corrige, total_sales, post_title)))
+```
+
+## 3.4 — Contrôles de cohérence de `df_analyse`
+
+```{r}
+#| label: controle_df_analyse
+#| echo: true
+
+# Contrôle de la structure de la table analytique principale
+controle_df_analyse <- df_analyse |>
+  summarise(
+    nombre_lignes = n(),
+    nombre_colonnes = ncol(df_analyse),
+    product_id_distincts = n_distinct(product_id, na.rm = TRUE),
+    id_web_distincts = n_distinct(id_web, na.rm = TRUE),
+    doublons_product_id = sum(duplicated(product_id)),
+    doublons_id_web = sum(duplicated(id_web))
+  )
+
+knitr::kable(controle_df_analyse)
+```
+
+Le nombre de lignes de `df_analyse` correspond au nombre de produits
+pour lesquels on dispose à la fois : - d'une fiche produit Web avec
+SKU, - d'une correspondance dans la table de liaison, - et d'une
+référence dans l'ERP avec prix et stock.
+
+L'absence de doublons sur `product_id` et `id_web` confirme que les
+jointures n'ont pas dédoublonné les références de manière inattendue.
+
+## 3.5 — Synthèse de la couverture des données
+
+```{r}
+#| label: resume_couverture_donnees
+#| echo: true
+
+# Synthèse de la couverture des données après jointure
+resume_couverture <- tibble(
+  etape = c(
+    "Produits dans ERP",
+    "Produits dans Web (avec SKU)",
+    "Correspondances dans liaison (id_web renseignés)",
+    "Produits dans df_analyse (ERP + liaison + Web)"
+  ),
+  nombre = c(
+    nrow(erp_analytique),
+    nrow(web_analytique),
+    nrow(liaison_analytique),
+    nrow(df_analyse)
+  )
+)
+
+knitr::kable(resume_couverture)
+```
+
+# Étape 4 — Analyse univariée des prix
+
+Cette étape analysera la distribution des prix de vente corrigés. Les
+prix sont considérés comme hors taxes (HT) : l'export indique que les
+produits sont taxables, mais aucun taux de TVA n'est fourni. Les calculs
+de chiffre d'affaires, marge et valorisation seront donc réalisés en HT.
+
+## 4.1 Visualisation de la distribution des prix
+
+```{r}
+#| label: etape4_boxplot_prix
+#| echo: true
+#| fig-height: 2.2
+#| fig-width: 10
+
+# Création d'un groupe unique pour représenter l'ensemble du catalogue
+df_prix <- df_analyse |>
+  mutate(groupe = "Catalogue \nBottleNeck")
+
+# Boîte à moustaches horizontale des prix de vente corrigés
+ggplot(df_prix, aes(x = prix_vente_corrige, y = groupe)) +
+  geom_boxplot(
+    width = 0.25,
+    fill = "lightblue",
+    color = "grey25",
+    outlier.color = "red",
+    outlier.size = 2,
+    outlier.alpha = 0.8
+  ) +
+  labs(
+    title = "Répartition des prix de vente corrigés",
+    subtitle = "Prix exprimés en euros HT",
+    x = "Prix de vente corrigé (€)",
+    y = NULL
+  ) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(face = "bold"),
+    plot.subtitle = element_text(color = "grey40"),
+    axis.ticks.y = element_blank(),
+    panel.grid.major.y = element_blank(),
+    panel.grid.minor = element_blank()
+  )
+```
+
+```{r}
+#| label: etape4_histogramme_prix
+#| echo: true
+
+# Histogramme des prix de vente corrigés
+ggplot(df_analyse, aes(x = prix_vente_corrige)) +
+  geom_histogram(binwidth = 5, fill = "steelblue", color = "white", boundary = 0) +
+  labs(
+    title = "Histogramme des prix de vente corrigés (HT)",
+    x = "Prix (€)",
+    y = "Nombre de produits"
+  ) +
+  theme_minimal()
+```
+
+## 4.2 Exploration par l'utilisation de méthodes statistiques
+
+Les prix sont considérés comme hors taxes (HT) : l'export indique que
+les produits sont taxables, mais aucun taux de TVA n'est fourni. Les
+calculs de chiffre d'affaires, marge et valorisation seront donc
+réalisés en HT.
+
+### 4.2.1 — Identification par le Z-score
+
+Le Z-score mesure le nombre d'écarts-types séparant une observation de
+la moyenne. Une valeur absolue supérieure à 3 est souvent considérée
+comme atypique.
+
+```{r}
+#| label: etape4_zscore
+#| echo: true
+
+# Calcul de la moyenne et de l'écart-type des prix
+stats_base <- df_analyse |>
+  summarise(
+    prix_moyenne = mean(prix_vente_corrige, na.rm = TRUE),
+    prix_ecart_type = sd(prix_vente_corrige, na.rm = TRUE)
+  )
+
+# Extraction des valeurs pour le calcul du Z-score
+moyenne <- stats_base$prix_moyenne
+ecart_type <- stats_base$prix_ecart_type
+
+# Calcul du Z-score pour chaque produit
+df_zscore <- df_analyse |>
+  mutate(
+    z_score = (prix_vente_corrige - moyenne) / ecart_type
+  )
+
+# Identification des outliers (|Z| > 3)
+outliers_zscore <- df_zscore |>
+  filter(abs(z_score) > 3) |>
+  select(product_id, post_title, prix_vente_corrige, z_score)
+
+# Synthèse
+resume_zscore <- tibble(
+  mesure = c("Moyenne", "Écart-type", "Seuil Z > 3", "Seuil Z < -3", "Nombre d'outliers", "Proportion d'outliers (%)"),
+  valeur = c(
+    round(moyenne, 2),
+    round(ecart_type, 2),
+    round(moyenne + 3 * ecart_type, 2),
+    round(moyenne - 3 * ecart_type, 2),
+    nrow(outliers_zscore),
+    round(nrow(outliers_zscore) / nrow(df_analyse) * 100, 2)
+  )
+)
+
+knitr::kable(resume_zscore)
+```
+
+```{r}
+#| label: etape4_outliers_zscore_detail
+#| echo: true
+
+# Affichage des produits outliers selon le Z-score
+knitr::kable(head(outliers_zscore))
+```
+
+Les produits avec un Z-score supérieur à 3 ou inférieur à -3 sont
+considérés comme atypiques selon cette méthode. Un prix élevé n'est pas
+automatiquement une erreur : il peut correspondre à des produits de
+gamme supérieure ou à des références rares.
+
+### 4.2.2 Identification par l'intervalle interquartile (IQR)
+
+L'intervalle interquartile (IQR) est défini comme Q3 - Q1. Les valeurs
+en dehors de l'intervalle \[Q1 - 1.5 × IQR, Q3 + 1.5 × IQR\] sont
+considérées comme atypiques.
+
+```{r}
+#| label: etape4_iqr
+#| echo: true
+
+# Calcul des quartiles et de l'IQR
+stats_iqr <- df_analyse |>
+  summarise(
+    prix_q1 = quantile(prix_vente_corrige, 0.25, na.rm = TRUE),
+    prix_q3 = quantile(prix_vente_corrige, 0.75, na.rm = TRUE),
+    prix_mediane = median(prix_vente_corrige, na.rm = TRUE)
+  )
+
+q1 <- stats_iqr$prix_q1
+q3 <- stats_iqr$prix_q3
+iqr <- q3 - q1
+
+borne_inf <- q1 - 1.5 * iqr
+borne_sup <- q3 + 1.5 * iqr
+
+# Identification des outliers selon l'IQR
+outliers_iqr <- df_analyse |>
+  filter(prix_vente_corrige < borne_inf | prix_vente_corrige > borne_sup) |>
+  select(product_id, post_title, prix_vente_corrige)
+
+# Synthèse
+resume_iqr <- tibble(
+  mesure = c("Q1", "Q3", "IQR", "Borne inférieure", "Borne supérieure", "Nombre d'outliers", "Proportion d'outliers (%)"),
+  valeur = c(
+    round(q1, 2),
+    round(q3, 2),
+    round(iqr, 2),
+    round(borne_inf, 2),
+    round(borne_sup, 2),
+    nrow(outliers_iqr),
+    round(nrow(outliers_iqr) / nrow(df_analyse) * 100, 2)
+  )
+)
+
+knitr::kable(resume_iqr)
+```
+
+```{r}
+#| label: etape4_outliers_iqr_detail
+#| echo: true
+
+# Affichage des produits outliers selon l'IQR
+knitr::kable(head(outliers_iqr))
+```
+
+### Analyse des outliers : sont-ils justifiés ?
+
+Les deux méthodes (Z-score et IQR) repèrent des produits avec des prix
+très éloignés de la moyenne, mais ça ne veut pas dire automatiquement
+qu'il y a une erreur.
+
+Pour vérifier si ces prix atypiques sont “normaux”, on peut se poser
+quelques questions simples :
+
+- **Est-ce que ce sont des produits “spéciaux” ?**\
+  Certains produits (champagnes prestigieux, cognacs rares, vieux
+  millésimes) coûtent naturellement plus cher que le reste. Regarder le
+  nom du produit (`post_title`) ou son type (`product_type`) aide à
+  comprendre si on est sur de la gamme supérieure.
+
+- **Est-ce que le prix d'achat est lui aussi élevé ?**\
+  Un prix de vente haut peut être justifié si le produit a coûté cher à
+  acheter. Calculer la marge
+  `(prix_vente_corrige - prix_achat) / prix_achat` pour ces produits
+  permet de voir si leur marge est cohérente avec le reste du catalogue
+  ou complètement hors norme.
+
+- **Est-ce que ces produits se vendent ?**\
+  Un produit cher mais qui se vend peut vouloir dire que le prix est
+  accepté par le marché. À l'inverse, un produit très cher avec très peu
+  ou pas de ventes peut signaler un prix inadapté.
+
+- **Qu'en pensent les équipes métier ?**\
+  Dans l'idéal, il faudrait demander aux équipes commerciales ou achats
+  si ces prix correspondent à une vraie stratégie (produits de prestige,
+  liquidation, etc.).
+
+Dans ce projet, on n'a pas toutes ces informations. On va surtout
+**garder ces outliers dans les analyses** et les considérer comme des
+points de vigilance : ce sont des prix réels, ils font partie du
+catalogue, mais ils mériteraient d'être creusés avec l'équipe.
+
+# Étape 5 — Analyses complémentaires
+
+## 5.1 Analyse des ventes en CA
+
+### 5.1.1 Analyse du CA du site
+
+Le chiffre d'affaires hors taxes par article est calculé en multipliant
+le prix de vente corrigé par la quantité vendue en octobre.
+
+```{r}
+#| label: calcul_ca_par_article
+#| echo: true
+
+# Création de la colonne de chiffre d'affaires HT par article
+df_analyse <- df_analyse |>
+  mutate(
+    ca_par_article = prix_vente_corrige * total_sales
+  )
+
+# Aperçu des variables utilisées pour calculer le CA
+knitr::kable(
+  head(
+    df_analyse |>
+      select(
+        product_id,
+        id_web,
+        post_title,
+        prix_vente_corrige,
+        total_sales,
+        ca_par_article
+      )
+  ),
+  digits = 2
+)
+```
+
+Le chiffre d'affaires total correspond à la somme du chiffre d'affaires
+généré par chaque article.
+
+```{r}
+#| label: calcul_ca_total
+#| echo: true
+
+# Calcul du chiffre d'affaires total HT
+ca_total <- df_analyse |>
+  summarise(
+    ca_total_ht = sum(ca_par_article, na.rm = TRUE)
+  )
+
+knitr::kable(
+  ca_total,
+  col.names = "Chiffre d'affaires total HT (€)"
+)
+```
+
+Le chiffre d'affaires total du périmètre analysé est de **143 285,90 €
+HT** pour le mois d'octobre.
+
+Ce montant correspond uniquement aux produits disposant d'une
+correspondance entre les fichiers Web, liaison et ERP. Il ne représente
+donc pas nécessairement le chiffre d'affaires total de BottleNeck,
+notamment pour les produits non référencés sur le site Web ou non
+appariés dans la table de liaison.
+
+### 5.1.2 Palmarès des articles
+
+Les produits sont classés du chiffre d'affaires le plus élevé au plus
+faible. La colonne `classement_ca` permet d'indiquer clairement la
+position de chaque produit dans le palmarès.
+
+```{r}
+#| label: top_20_ca
+#| echo: true
+
+# Classement des 20 produits générant le plus de chiffre d'affaires
+top_20_ca <- df_analyse |>
+  arrange(desc(ca_par_article)) |>
+  mutate(
+    classement_ca = row_number()
+  ) |>
+  slice_head(n = 20) |>
+  select(
+    classement_ca,
+    product_id,
+    post_title,
+    product_type,
+    prix_vente_corrige,
+    total_sales,
+    ca_par_article
+  )
+
+knitr::kable(
+  top_20_ca |>
+    select(
+      classement_ca,
+      post_title,
+      prix_vente_corrige,
+      total_sales,
+      ca_par_article
+    ),
+  digits = 2,
+  col.names = c(
+    "Rang",
+    "Produit",
+    "Prix HT (€)",
+    "Quantité vendue",
+    "CA HT (€)"
+  )
+)
+```
+
+Le classement montre que les produits générant le plus de chiffre
+d'affaires combinent généralement un prix de vente élevé, un volume de
+ventes important, ou les deux.
+
+Le premier produit du classement génère 2 475 € HT. Les produits situés
+en tête appartiennent principalement à une gamme premium de vins et
+champagnes, ce qui rend cohérents les prix élevés identifiés lors de
+l'analyse univariée.
+
+```{r}
+#| label: graphique_top_20_ca
+#| echo: true
+#| fig-width: 11
+#| fig-height: 8
+
+# Graphique des 20 produits générant le plus de chiffre d'affaires
+ggplot(
+  top_20_ca,
+  aes(
+    x = reorder(post_title, ca_par_article),
+    y = ca_par_article
+  )
+) +
+  geom_col(fill = "steelblue") +
+  coord_flip() +
+  labs(
+    title = "Les 20 produits générant le plus de chiffre d'affaires",
+    subtitle = "Chiffre d'affaires HT généré en octobre",
+    x = NULL,
+    y = "Chiffre d'affaires HT (€)"
+  ) +
+  scale_y_continuous(
+    labels = scales::label_number(
+      big.mark = " ",
+      decimal.mark = ","
+    )
+  ) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(face = "bold"),
+    plot.subtitle = element_text(color = "grey40"),
+    axis.text.y = element_text(size = 8),
+    panel.grid.minor = element_blank()
+  )
+```
+
+Le graphique confirme que les produits en tête du classement génèrent un
+chiffre d'affaires important grâce à des prix de vente élevés, à des
+volumes de vente importants, ou à la combinaison des deux.
+
+L'analyse du 20/80 qui suit permettra de mesurer plus précisément la
+part du chiffre d'affaires concentrée sur les références les plus
+performantes.
+
+### 5.1.3 Calculer le 20/80 en CA
+
+L'objectif est d'identifier le nombre de références générant au moins 80
+% du chiffre d'affaires HT total réalisé en octobre. Les produits sont
+classés par chiffre d'affaires décroissant avant de calculer le cumul.
+
+```{r}
+#| label: pareto-ca
+#| echo: true
+
+# Trier les produits du chiffre d'affaires le plus élevé
+# au chiffre d'affaires le plus faible.
+pareto_ca <- df_analyse |>
+  arrange(desc(ca_par_article)) |>
+  mutate(
+    rang_article = row_number(),
+    part_ca = ca_par_article / sum(ca_par_article),
+    part_ca_cumulee = cumsum(part_ca)
+  )
+
+# Afficher les 10 produits générant le plus de CA.
+pareto_ca |>
+  select(
+    rang_article,
+    post_title,
+    ca_par_article,
+    part_ca,
+    part_ca_cumulee
+  ) |>
+  head(10)
+```
+
+#### Seuil des 80 %
+
+```{r}
+#| label: seuil-80-ca
+#| echo: true
+
+# Conserver le premier produit pour lequel le cumul de CA
+# atteint ou dépasse 80%.
+seuil_80_ca <- pareto_ca |>
+  filter(part_ca_cumulee >= 0.80) |>
+  slice(1)
+
+# Le rang de ce produit indique le nombre de produits nécessaires
+# pour atteindre au moins 80% du CA.
+nombre_articles_80_ca <- seuil_80_ca |>
+  pull(rang_article)
+
+# Afficher le produit qui franchit le seuil.
+seuil_80_ca |>
+  select(
+    rang_article,
+    post_title,
+    ca_par_article,
+    part_ca_cumulee
+  )
+```
+
+#### Synthèse
+
+```{r}
+#| label: synthese-pareto-ca
+#| echo: true
+
+# Compter les références du catalogue.
+nombre_articles_catalogue <- nrow(df_analyse)
+
+# Calculer la part du catalogue qui génère au moins 80% du CA.
+proportion_articles_80_ca <- nombre_articles_80_ca / nombre_articles_catalogue
+
+# Créer un tableau de synthèse lisible.
+synthese_pareto_ca <- tibble(
+  nombre_articles_pour_80_pct_ca = nombre_articles_80_ca,
+  nombre_articles_catalogue = nombre_articles_catalogue,
+  proportion_catalogue = proportion_articles_80_ca,
+  pourcentage_catalogue = proportion_articles_80_ca * 100
+)
+
+synthese_pareto_ca
+```
+
+Les 433 produits générant le plus de chiffre d'affaires permettent de
+cumuler au moins 80 % du chiffre d'affaires HT total. Ils représentent
+60,8 % des 712 références du catalogue analysé.
+La règle théorique du 80/20 n'est donc pas observée : le chiffre d'affaires est réparti sur une part importante du catalogue.
+
+## 5.2 Analyse des ventes en quantité
+
+### 5.2.1 Palmarès des articles en quantité vendue
+
+Cette section identifie les produits ayant enregistré les volumes de
+vente les plus élevés en octobre. Contrairement au palmarès précédent,
+le classement est établi à partir du nombre d'unités vendues
+(`total_sales`) et non du chiffre d'affaires généré.
+
+```{r}
+#| label: top-20-quantite
+#| echo: true
+
+# Sélectionner les 20 produits ayant vendu le plus d'unités.
+top_20_quantite <- df_analyse |>
+  arrange(desc(total_sales)) |>
+  slice_head(n = 20) |>
+  select(
+    post_title,
+    product_type,
+    total_sales,
+    prix_vente_corrige,
+    ca_par_article
+  )
+
+top_20_quantite
+```
+
+```{r}
+#| label: graphique-top-20-quantite
+#| echo: true
+#| fig-width: 14
+#| fig-height: 8
+
+# Créer un graphique horizontal des 20 produits les plus vendus.
+ggplot(
+  top_20_quantite,
+  aes(
+    x = reorder(post_title, total_sales),
+    y = total_sales
+  )
+) +
+  geom_col(fill = "#4C86B7") +
+  coord_flip() +
+  labs(
+    title = "Les 20 produits les plus vendus",
+    subtitle = "Quantités vendues en octobre",
+    x = NULL,
+    y = "Quantités vendues"
+  ) +
+  scale_y_continuous(
+    breaks = scales::breaks_pretty(n = 6)
+  ) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(face = "bold"),
+    axis.title.y = element_text(face = "bold")
+  )
+```
+
+### 5.2.2 Calcul du 20/80 en quantité
+#### Calcul du cumul 
+
+```{r}
+
+#| label: pareto-quantite
+#| echo: true
+
+# Trier les produits part quantité de vente la plus élevée à la plus faible
+pareto_quantite <- df_analyse |>
+  arrange(desc(total_sales)) |>
+  mutate(
+    rang_article = row_number(),
+    part_quantite = total_sales / sum(total_sales),
+    part_quantite_cumulee = cumsum(part_quantite)
+  )
+
+# Afficher les 10 produits les plus vendus.
+pareto_quantite |>
+  select(
+    rang_article,
+    post_title,
+    total_sales,
+    part_quantite,
+    part_quantite_cumulee
+  ) |>
+  head(10)
+```
+#### Seuil des 80 %
+
+```{r}
+#| label: seuil-80-quantite
+#| echo: true
+
+# Conserver le premier produit pour lequel le cumul des quantites
+# atteint ou dépasse 80%.
+seuil_80_quantite <- pareto_quantite |>
+  filter(part_quantite_cumulee >= 0.80) |>
+  slice(1)
+
+# Le rang de ce produit indique le nombre de produits nécessaires
+# pour atteindre au moins 80% en quantites vendues
+nombre_articles_80_quantite <- seuil_80_quantite |>
+  pull(rang_article)
+
+# Afficher le produit qui franchit le seuil.
+seuil_80_quantite |>
+  select(
+    rang_article,
+    post_title,
+    part_quantite,
+    part_quantite_cumulee
+  )
+```
+#### Synthèse
+
+```{r}
+#| label: synthese-pareto-quantite
+#| echo: true
+
+# Compter le nombre total de références du catalogue.
+nombre_articles_catalogue <- nrow(df_analyse)
+
+# Calculer la proportion du catalogue nécessaire
+# pour atteindre au moins 80% des quantités vendues.
+proportion_articles_80_quantite <- nombre_articles_80_quantite /
+  nombre_articles_catalogue
+
+# Créer un tableau de synthèse.
+synthese_pareto_quantite <- tibble(
+  nombre_articles_pour_80_pct_quantite = nombre_articles_80_quantite,
+  nombre_articles_catalogue = nombre_articles_catalogue,
+  proportion_catalogue = proportion_articles_80_quantite,
+  pourcentage_catalogue = proportion_articles_80_quantite * 100
+)
+
+synthese_pareto_quantite
+```
+Les 432 produits les plus vendus permettent de cumuler au moins 80 % des quantités vendues. Ils représentent 60,7 % des 712 références du catalogue analysé.
+
+Ce résultat est très proche de celui obtenu pour le chiffre d'affaires : 433 références, soit 60,8 % du catalogue, sont nécessaires pour atteindre 80 % du CA HT. Les ventes en quantité et le chiffre d'affaires sont donc répartis sur un grand nombre de références ; la règle indicative de Pareto 80/20 n'est pas observée dans ce jeu de données.
+
+## 5.3 Analyse des stocks
+
+### 5.3.1 Estimation du nombre de mois de stock
+
+Le nombre de mois de stock estime la durée pendant laquelle le stock
+actuel pourrait couvrir les ventes, si le rythme observé en octobre
+restait identique.
+
+Le template présente cet indicateur comme une rotation de stock.
+Cependant, les données couvrent seulement un mois de ventes et un stock
+à un instant donné. Il s'agit donc d'une **couverture estimée de stock**,
+et non d'une rotation de stock annuelle calculée à partir d'un stock
+moyen.
+
+#### Calcul de l'indicateur
+
+```{r}
+#| label: mois-stock
+#| echo: true
+
+# Créer une vue de travail dédiée à l'analyse des stocks.
+
+df_stock <- df_analyse |>
+  mutate(
+    mois_stock = if_else(
+      total_sales > 0,
+      quantite_stock / total_sales,
+      NA_real_
+    )
+  )
+
+# Contrôler le calcul sur les premières références.
+
+df_stock |>
+  select(
+    product_id,
+    post_title,
+    quantite_stock,
+    total_sales,
+    mois_stock,
+    statut_stock
+  ) |>
+  head(10)
+```
+
+Les références sans vente en octobre reçoivent la valeur `NA`, car leur
+couverture ne peut pas être estimée à partir de la période disponible.
+
+Les stocks négatifs sont conservés afin de respecter les données
+sources. Ils peuvent correspondre à des précommandes, à des ventes
+enregistrées avant réapprovisionnement ou à des incohérences nécessitant
+une validation métier.
+
+#### Flop 20 des mois de stock
+
+Les produits sont classés par nombre de mois de stock décroissant. Les
+premières références sont celles dont le stock est le plus élevé par
+rapport aux ventes observées en octobre.
+
+```{r}
+#| label: flop-20-mois-stock
+#| echo: true
+
+# Sélectionner les 20 produits ayant le plus de mois de stock.
+
+flop_20_mois_stock <- df_stock |>
+  filter(!is.na(mois_stock)) |>
+  arrange(desc(mois_stock)) |>
+  slice_head(n = 20) |>
+  mutate(
+    classement_stock = row_number()
+  ) |>
+  select(
+    classement_stock,
+    post_title,
+    product_type,
+    quantite_stock,
+    total_sales,
+    mois_stock
+  )
+
+knitr::kable(
+  flop_20_mois_stock,
+  digits = 2,
+  col.names = c(
+    "Rang",
+    "Produit",
+    "Type",
+    "Quantité en stock",
+    "Quantité vendue",
+    "Couverture estimée (mois)"
+  )
+)
+```
+
+```{r}
+#| label: graphique-flop-20-mois-stock
+#| echo: true
+#| fig-width: 14
+#| fig-height: 8
+
+# Représenter les 20 produits ayant le plus de mois de stock.
+
+ggplot(
+  flop_20_mois_stock,
+  aes(
+    x = reorder(post_title, mois_stock),
+    y = mois_stock
+  )
+) +
+  geom_col(fill = "#4C86B7") +
+  coord_flip() +
+  labs(
+    title = "Les 20 produits ayant la couverture de stock la plus élevée",
+    subtitle = "Estimation fondée sur les ventes du mois d'octobre",
+    x = NULL,
+    y = "Couverture estimée de stock (mois)"
+  ) +
+  scale_y_continuous(
+    breaks = scales::breaks_pretty(n = 6)
+  ) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(face = "bold"),
+    axis.title.y = element_text(face = "bold")
+  )
+```
+
+Une couverture élevée peut signaler un stock important par rapport aux
+ventes du mois. Ce résultat doit toutefois être interprété avec prudence,
+car il ne tient pas compte de la saisonnalité ni de l'évolution des
+ventes sur une année complète.
+
+### 5.3.2 Valorisation des stocks en euros
+
+La valeur du stock est calculée en multipliant la quantité en stock par
+le prix d'achat unitaire.
+
+#### Valorisation par produit
+
+```{r}
+#| label: calcul-valorisation-stock
+#| echo: true
+
+# Ajouter la valorisation au prix d'achat à la vue df_stock.
+
+df_stock <- df_stock |>
+  mutate(
+    valeur_stock_achat = quantite_stock * prix_achat
+  )
+
+# Contrôler le calcul sur les premières références.
+
+df_stock |>
+  select(
+    product_id,
+    post_title,
+    quantite_stock,
+    prix_achat,
+    valeur_stock_achat
+  ) |>
+  head(10)
+```
+
+#### Valorisation totale
+
+```{r}
+#| label: valorisation-totale-stock
+#| echo: true
+
+# Calculer la valeur totale du stock au prix d'achat.
+
+valorisation_totale_stock <- df_stock |>
+  summarise(
+    valeur_totale_stock_achat = sum(
+      valeur_stock_achat,
+      na.rm = TRUE
+    )
+  )
+
+knitr::kable(
+  valorisation_totale_stock,
+  digits = 2,
+  col.names = "Valeur totale du stock au prix d'achat (€)"
+)
+```
+
+La valorisation est exprimée au prix d'achat et représente le montant
+financier immobilisé dans le stock. Les stocks négatifs sont conservés
+dans ce calcul afin de refléter les données présentes dans l'ERP.
+
+### 5.3.3 Quantité totale de produits en stock
+
+La quantité totale en stock correspond à la somme des quantités
+enregistrées dans l'ERP pour les références du périmètre analysé.
+
+```{r}
+#| label: quantite-totale-stock
+#| echo: true
+
+# Calculer la quantité totale enregistrée en stock.
+
+quantite_totale_stock <- df_stock |>
+  summarise(
+    nombre_total_produits_stock = sum(
+      quantite_stock,
+      na.rm = TRUE
+    )
+  )
+
+knitr::kable(
+  quantite_totale_stock,
+  col.names = "Quantité totale enregistrée en stock"
+)
+```
+
+Ce résultat inclut les valeurs négatives conservées lors de la
+préparation des données. Il représente donc le stock net enregistré dans
+l'ERP et non nécessairement la quantité physique immédiatement
+disponible.
+
+## 5.4 Analyse du taux de marge
+
+### 5.4.1 Calcul du taux de marge
+
+Le taux de marge mesure le gain brut réalisé sur la vente d'un produit par rapport à son prix d'achat. Il permet de comparer la rentabilité relative des références, indépendamment de leur quantité vendue.
+
+Le taux de marge est calculé selon la formule suivante :
+
+Taux de marge = ((prix de vente HT - prix d'achat) / prix d'achat) × 100
+
+La colonne `prix_vente_corrige` est utilisée directement, car elle correspond déjà au prix de vente HT corrigé. Créer une nouvelle colonne `prix_ht` serait redondant.
+
+```{r}
+#| label: calcul-taux-marge
+#| echo: true
+
+# Créer le taux de marge pour chaque référence à partir
+# du prix de vente HT corrigé et du prix d'achat.
+df_marge <- df_analyse |>
+  mutate(
+    taux_marge = (
+      (prix_vente_corrige - prix_achat) / prix_achat
+    ) * 100
+  )
+
+# Afficher les valeurs minimale et maximale du taux de marge.
+df_marge |>
+  summarise(
+    taux_marge_minimum = min(taux_marge, na.rm = TRUE),
+    taux_marge_maximum = max(taux_marge, na.rm = TRUE)
+  )
+```
+
+### 5.4.2 Identification des marges négatives
+
+```{r}
+#| label: taux-marge-negatif
+#| echo: true
+
+# Identifier les références dont le taux de marge est négatif.
+marge_negative <- df_marge |>
+  filter(taux_marge < 0) |>
+  select(
+    product_id,
+    post_title,
+    product_type,
+    prix_vente_corrige,
+    prix_achat,
+    total_sales,
+    ca_par_article,
+    taux_marge
+  ) |>
+  arrange(taux_marge)
+
+marge_negative
+```
+Une seule référence présente un taux de marge négatif : un champagne affiché à 12,60 € HT pour un prix d'achat de 77,50 € HT. Cette référence n'a enregistré aucune vente en octobre et n'a donc généré ni chiffre d'affaires ni perte commerciale sur la période.
+
+Une hypothèse possible est une erreur de saisie de la virgule dans le prix de vente : un prix de 126 € HT, au lieu de 12,60 € HT, conduirait à un taux de marge de 62,6 %, proche du taux moyen observé pour les champagnes. Cette hypothèse ne peut toutefois pas être confirmée à partir des données disponibles. La valeur initiale est donc conservée.
+
+### 5.4.3 Analyse des marges positives
+
+Afin d'analyser la distribution des marges commerciales habituelles sans être influencée par les références vendues à perte, une table de travail contenant uniquement les taux de marge positifs est créée.
+
+```{r}
+#| label: taux-marge-positif
+#| echo: true
+
+# Créer une table contenant uniquement les références
+# dont le taux de marge est positif ou nul.
+df_marge_positive <- df_marge |>
+  filter(taux_marge >= 0)
+
+# Afficher les valeurs minimale et maximale des taux de marge positifs.
+df_marge_positive |>
+  summarise(
+    taux_marge_minimum = min(taux_marge, na.rm = TRUE),
+    taux_marge_maximum = max(taux_marge, na.rm = TRUE)
+  )
+```
+
+### 5.4.4 Taux de marge moyen par type de produit
+
+Le taux de marge moyen est calculé pour chaque type de produit afin de comparer les politiques de prix et de coût selon les familles de produits. Le calcul est réalisé sur les marges positives ou nulles afin d’éviter qu’une éventuelle vente à perte ne modifie artificiellement la moyenne d’une catégorie.
+
+```{r}
+#| label: taux-marge-type-produit
+#| echo: true
+
+# Calculer le taux de marge moyen par type de produit.
+taux_marge_par_type <- df_marge_positive |>
+  group_by(product_type) |>
+  summarise(
+    taux_marge_moyen = mean(taux_marge, na.rm = TRUE),
+    nombre_references = n(),
+    .groups = "drop"
+  ) |>
+  arrange(desc(taux_marge_moyen))
+
+taux_marge_par_type
+```
+
+```{r}
+#| label: graphique-taux-marge-type
+#| echo: true
+#| fig-width: 10
+#| fig-height: 6
+
+# Représenter le taux de marge moyen par type de produit.
+ggplot(
+  taux_marge_par_type,
+  aes(
+    x = reorder(product_type, taux_marge_moyen),
+    y = taux_marge_moyen
+  )
+) +
+  geom_col(fill = "#4C86B7") +
+  coord_flip() +
+  labs(
+    title = "Taux de marge moyen par type de produit",
+    subtitle = "Calcul réalisé sur les références à marge positive ou nulle",
+    x = NULL,
+    y = "Taux de marge moyen (%)"
+  ) +
+  scale_y_continuous(
+    labels = scales::label_number(
+      decimal.mark = ",",
+      suffix = " %"
+    )
+  ) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(face = "bold"),
+    axis.title.y = element_text(face = "bold")
+  )
+```
+
+Le taux de marge moyen est le plus élevé pour le cognac (119 %), suivi du whisky (118 %) et du gin (110 %). Ces catégories regroupent toutefois un nombre limité de références, respectivement 8, 14 et 2, ce qui invite à interpréter ces résultats avec prudence.
+
+Le vin, qui représente la grande majorité des références analysées avec 657 produits, présente un taux de marge moyen de 93,8 %. Le champagne affiche un taux moyen plus faible, de 67,9 % sur 27 références. Ce résultat est cohérent avec les analyses précédentes : les champagnes concentrent une forte valeur de stock et une part importante du chiffre d'affaires, mais leur taux de marge moyen est inférieur à celui des vins.
+
+Ces résultats décrivent des taux de marge moyens par référence. Ils ne permettent pas à eux seuls de déterminer quelles catégories génèrent le plus de marge en euros, car cette analyse nécessiterait de prendre en compte les quantités vendues.
+
+
+## 5.5 Analyse des corrélations entre stock, ventes et prix
+
+Cette section explore les relations linéaires entre trois variables clés :
+
+- `quantite_stock` : quantité en stock dans l’ERP ;
+- `total_sales` : quantité vendue en octobre (Web) ;
+- `prix_vente_corrige` : prix de vente HT corrigé.
+
+L’objectif est de détecter d’éventuelles corrélations fortes entre ces variables, par exemple :
+
+- un lien entre le niveau de stock et les ventes (les produits très vendus sont-ils mieux approvisionnés ?) ;
+- un lien entre le prix et les ventes (les produits chers se vendent-ils moins ?) ;
+- un lien entre le prix et le stock (les produits chers ont-ils des stocks plus faibles ?).
+
+### 5.5.1 Calcul de la matrice de corrélation
+
+On calcule les corrélations de Pearson entre les trois variables sur le périmètre de `df_analyse`.
+
+```{r}
+#| label: correlation-matrice
+#| echo: true
+
+# Sélectionner les variables numériques d'intérêt.
+df_corr <- df_analyse |>
+  select(quantite_stock, total_sales, prix_vente_corrige)
+
+# Calcul de la matrice de corrélation (Pearson).
+matrice_corr <- cor(df_corr, use = "pairwise.complete.obs")
+
+# Affichage de la matrice.
+knitr::kable(
+  matrice_corr,
+  digits = 3,
+  caption = "Matrice de corrélation entre stock, ventes et prix"
+)
+```
+
+Les valeurs de corrélation varient entre -1 et 1 :
+
+- une valeur proche de 1 indique une forte corrélation positive ;
+- une valeur proche de -1 indique une forte corrélation négative ;
+- une valeur proche de 0 indique une absence de relation linéaire marquée.
+
+### 5.5.2 Visualisation sous forme de heatmap
+
+```{r}
+#| label: heatmap-correlation
+#| echo: true
+#| fig-width: 7
+#| fig-height: 6
+
+# Mettre la matrice sous forme de data.frame pour ggplot2.
+library(reshape2)
+
+matrice_corr_df <- as.data.frame(matrice_corr) |>
+  mutate(variable1 = rownames(matrice_corr)) |>
+  tidyr::pivot_longer(
+    cols = -variable1,
+    names_to = "variable2",
+    values_to = "correlation"
+  )
+
+# Heatmap des corrélations.
+ggplot(
+  matrice_corr_df,
+  aes(
+    x = variable2,
+    y = variable1,
+    fill = correlation
+  )
+) +
+  geom_tile(color = "white") +
+  geom_text(
+    aes(label = round(correlation, 2)),
+    size = 5,
+    color = "black"
+  ) +
+  scale_fill_gradient2(
+    low = "#2C7FB8",
+    mid = "white",
+    high = "#D95F0E",
+    midpoint = 0,
+    limits = c(-1, 1),
+    name = "Corrélation"
+  ) +
+  labs(
+    title = "Heatmap des corrélations entre stock, ventes et prix",
+    x = NULL,
+    y = NULL
+  ) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(face = "bold"),
+    axis.text.x = element_text(angle = 45, hjust = 1)
+  )
+```
+
+### 5.5.3 Interprétation des corrélations
+
+La corrélation entre la quantité en stock et les ventes est positive et
+modérée **(r = 0,438)**. Les produits les plus vendus tendent donc à
+disposer d'un stock plus important, sans que cette relation soit forte.
+
+La corrélation entre le prix de vente et les quantités vendues est
+négative et modérée **(r = -0,516)**. Les produits les plus chers tendent
+à être vendus en plus faibles quantités.
+
+Enfin, la corrélation entre le prix de vente et la quantité en stock est
+très faible et négative **(r = -0,106)**. Le prix semble donc avoir peu de
+relation linéaire avec le niveau de stock.
+
+Ces corrélations décrivent des relations linéaires et ne permettent pas
+d'établir un lien de causalité. Elles sont également calculées sur un
+seul mois de ventes.
+
+## 5.6 Mise à disposition de la vue analytique au format Excel
+
+## 5.6 Mise à disposition de la vue analytique au format Excel
+
+Une vue dédiée à l'export est créée afin de regrouper les indicateurs
+calculés dans les analyses précédentes. Les noms de colonnes sont
+francisés pour faciliter la consultation du fichier Excel.
+
+```{r}
+#| label: creation-vue-export
+#| echo: true
+
+# Créer une vue destinée à l'export Excel.
+# df_stock contient déjà les indicateurs de CA et de stock.
+# La colonne taux_marge est ajoutée depuis df_marge.
+df_export <- df_stock |>
+  select(
+    product_id,
+    onsale_web,
+    prix_vente,
+    prix_vente_corrige,
+    prix_negatif,
+    prix_achat,
+    quantite_stock,
+    statut_stock,
+    id_web,
+    post_title,
+    product_type,
+    total_sales,
+    ca_par_article,
+    mois_stock,
+    valeur_stock_achat
+  ) |>
+  left_join(
+    df_marge |>
+      select(product_id, taux_marge),
+    by = "product_id"
+  ) |>
+  mutate(
+    mois_stock = round(mois_stock, 2),
+    taux_marge = round(taux_marge, 2)
+  ) |>
+  rename(
+    id_produit_erp = product_id,
+    dispo_sur_web = onsale_web,
+    prix_vente_original_ht = prix_vente,
+    prix_vente_corrige_ht = prix_vente_corrige,
+    indicateur_prix_negatif = prix_negatif,
+    prix_achat_ht = prix_achat,
+    quantite_en_stock = quantite_stock,
+    statut_du_stock = statut_stock,
+    id_produit_web = id_web,
+    nom_produit = post_title,
+    type_produit = product_type,
+    quantite_vendue_octobre = total_sales,
+    chiffre_affaires_ht = ca_par_article,
+    couverture_estimee_mois = mois_stock,
+    valeur_stock_prix_achat_ht = valeur_stock_achat,
+    taux_marge_pourcentage = taux_marge
+  )
+
+# Aperçu de la vue qui sera exportée.
+knitr::kable(
+  head(df_export),
+  digits = 2
+)
+```
+
+```{r}
+#| label: export-excel-df-analyse
+#| echo: true
+
+# Exporter la vue analytique dans le dossier doc du projet.
+write_xlsx(
+  df_export,
+  path = "doc/df_analyse_bottleneck.xlsx"
+)
+```
+
+Le fichier Excel contient les références correctement appariées entre
+les données ERP, de liaison et Web, ainsi que les indicateurs de chiffre
+d'affaires, de couverture estimée de stock, de valorisation et de marge.
+
+
+# Étape 6 — Limites, recommandations et conclusion
+
+## 6.1 Erreurs, incohérences et arbitrages
+
+Les fichiers sources ont été conservés sans modification. Les anomalies et
+incohérences identifiées ont été traitées dans les vues analytiques, en
+conservant autant que possible la valeur d'origine et la trace des choix
+effectués.
+
+| # | Élément identifié | Décision retenue |
+|---|---|---|
+| 1 | Lignes `attachment` dans l'export Web | Exclues de la table Web analytique, car elles correspondent à des pièces jointes et non à des produits. |
+| 2 | 4 fiches produit sans SKU | Exclues de la table Web analytique, car elles ne peuvent pas être rapprochées avec une règle de jointure homogène. |
+| 3 | Références ERP sans `id_web` | Conservées dans l'ERP, mais exclues des analyses combinant les données Web et ERP. |
+| 4 | 3 prix de vente négatifs | Conservés dans la colonne d'origine et corrigés dans `prix_vente_corrige` afin de permettre les calculs de CA et de marge. |
+| 5 | 2 quantités de stock négatives | Conservées, car elles peuvent correspondre à des précommandes, des ventes anticipées ou un décalage de réapprovisionnement. |
+| 6 | Écarts entre `stock_status` et le statut calculé | Signalés par la colonne de contrôle `stock_status_2`, sans modifier le statut source. |
+| 7 | Produits non proposés sur le Web avec stock positif | Conservés et signalés comme des situations nécessitant une interprétation prudente. |
+| 8 | Produits proposés sur le Web avec stock nul | Conservés et signalés comme des situations nécessitant une interprétation prudente. |
+| 9 | Prix de vente inférieur au prix d'achat pour une référence | Conservé sans correction, car une erreur de saisie est plausible mais non démontrée par les données. |
+| 10 | Incohérences de catégories / familles entre Web et ERP | Conservées telles quelles dans chaque source ; les écarts seront documentés lors des analyses combinées et interprétés avec prudence. |
+| 11 | Valeurs manquantes ou incohérentes dans certaines colonnes (ex. `category`, `family`, `status`) | Conservées ; les catégories / familles manquantes sont traitées comme "Non renseigné" dans les agrégations. |
+| 12 | Problèmes de jointure / doublons potentiels lors du rapprochement Web–ERP (clés non uniques, plusieurs lignes ERP pour un même produit Web) | Pris en compte dans la conception des requêtes : chaque indicateur fait sa propre jointure, avec des clés explicites et des contrôles de cohérence. | 
+: {tbl-colwidths="[5,45,50]"}
+
+## 6.2 Recommandations pour améliorer la qualité des données
+
+### 6.2.1 Processus de saisie et intégration des données
+
+1. **Encadrer la saisie des prix et des quantités**
+
+   - Problème visé : prix de vente négatifs, quantités de stock négatives, prix de vente < prix d'achat.
+   - Recommandation : mettre en place des règles de validation dans les formulaires et les imports (ERP et back-office Web) :
+     - bloquer ou alerter si `prix_vente < 0`, `prix_achat < 0`, `quantite_stock < 0` ;
+     - alerter si `prix_vente < prix_achat` (marge négative).
+   - Bénéfice attendu : réduction drastique des erreurs de saisie et des marges négatives involontaires.
+
+2. **Uniformiser les règles de création des produits sur les deux canaux**
+
+   - Problème visé : produits sans SKU, produits ERP sans `id_web`, incohérences entre produits Web et ERP.
+   - Recommandation :
+     - définir une règle claire : chaque produit vendu doit avoir un SKU unique, présent à la fois dans l'ERP et sur le Web ;
+     - rendre obligatoire le champ `id_web` (ou équivalent) lors de la création d'un produit dans l'ERP s'il est destiné à être vendu en ligne.
+   - Bénéfice attendu : moins de produits "orphelins", jointures Web–ERP plus fiables, vision unifiée du catalogue.
+
+3. **Normaliser la gestion des statuts de stock**
+
+   - Problème visé : écarts entre `stock_status` et le statut calculé à partir de `qty_in_stock`.
+   - Recommandation :
+     - définir une règle unique : `stock_status` doit être dérivé automatiquement de `qty_in_stock` (ex. : `qty_in_stock = 0` → `Out of Stock`, sinon `In Stock`) ;
+     - éviter les mises à jour manuelles de `stock_status` sans mise à jour concomitante du stock.
+   - Bénéfice attendu : cohérence automatique entre stock et statut, moins d'interprétations contradictoires.
+
+### 6.2.2 Gouvernance et contrôle qualité
+
+4. **Documenter et diffuser les règles de gestion**
+
+   - Problème visé : incohérences de catégories / familles, valeurs manquantes, interprétations divergentes.
+   - Recommandation :
+     - rédiger un document de référence (data dictionary / règles de gestion) qui précise :
+       - la définition de chaque champ important (`category`, `family`, `status`, `sku`, etc.),
+       - les règles de remplissage (obligatoire / optionnel, valeurs autorisées),
+       - les conventions de nommage (ex. : majuscules/minuscules, format des SKU).
+     - diffuser ce document aux équipes concernées (logistique, e-commerce, finance, IT) et le mettre à jour régulièrement.
+   - Bénéfice attendu : meilleure homogénéité des données, onboarding plus facile des nouveaux collaborateurs, analyses plus fiables.
+
+5. **Mettre en place des contrôles réguliers de qualité des données**
+
+   - Problème visé : anomalies qui passent malgré les règles de saisie (erreurs résiduelles, dérive dans le temps).
+   - Recommandation :
+     - créer des requêtes ou scripts de contrôle (quotidiens ou hebdomadaires) qui listent :
+       - produits avec prix négatifs ou marge négative,
+       - produits avec stock négatif,
+       - produits sans SKU,
+       - produits avec incohérence de statut,
+       - écarts de catégorie / famille entre Web et ERP.
+     - envoyer ces listes aux équipes concernées pour correction.
+   - Bénéfice attendu : détection précoce des anomalies résiduelles, amélioration continue de la qualité des données.
+
+### 6.2.3 Architecture et outillage
+
+6. **Centraliser la gestion du catalogue produit**
+
+   - Problème visé : doublons, incohérences Web/ERP, produits sans correspondance.
+   - Recommandation :
+     - faire de l'ERP (ou d'un PIM – Product Information Management) la source de vérité unique pour le catalogue produit ;
+     - alimenter le site Web à partir de cette source centrale via des flux automatisés (API, exports planifiés).
+   - Bénéfice attendu : un seul endroit où créer / modifier un produit, moins de divergences entre canaux.
+
+7. **Automatiser les synchronisations Web–ERP à chaque événement clé**
+
+   - Problème visé : décalages entre stocks, statuts, prix, et disponibilité sur les deux canaux.
+   - Recommandation :
+     - mettre en place des jobs automatisés (ex. : toutes les heures, ou en temps réel si possible) qui :
+       - mettent à jour les stocks et statuts sur le Web à partir de l'ERP,
+       - remontent les ventes Web dans l'ERP à chaque commande.
+   - Bénéfice attendu : vision cohérente et à jour des stocks, des ventes et des marges ; réduction des ruptures ou sur-stocks liés à des informations obsolètes.
+
+8. **S'appuyer sur le SKU unique comme clé de jointure principale**
+
+   - Problème visé : problèmes de jointure, doublons, clés non uniques.
+   - Recommandation :
+     - une fois la règle "SKU unique et obligatoire" mise en place, l'utiliser systématiquement comme clé de jointure entre Web et ERP ;
+     - s'assurer que cette clé reste unique et non nulle pour tous les produits actifs.
+   - Bénéfice attendu : jointures Web–ERP plus robustes, analyses combinées plus fiables, moins de traitements correctifs a posteriori.
+   
+   
+## 6.3 Conclusion
+
+Ce projet a consisté à explorer, nettoyer et analyser des données produits et ventes provenant de deux sources : un export du site e-commerce et un ERP interne. L’objectif était de construire des vues analytiques fiables, d’identifier les anomalies et incohérences dans les données, et de proposer des pistes d’amélioration concrètes pour la suite.
+
+L’analyse a montré plusieurs limites importantes : des produits sans SKU, des références ERP sans correspondance sur le Web, des prix ou des stocks négatifs, des incohérences de catégories et de statuts, et des risques de doublons ou de clés de jointure non uniques. Ces problèmes rendent les analyses combinant les deux canaux fragiles et obligent à interpréter les indicateurs avec prudence, en gardant en tête que certaines situations peuvent être mal représentées.
+
+Les recommandations portent sur trois axes : mieux encadrer la saisie et l’intégration des données (validation des prix, des quantités, des statuts), mettre en place une gouvernance simple mais efficace (règles documentées et partagées, contrôles réguliers), et faire évoluer l’architecture vers une source de vérité centrale avec des synchronisations automatiques entre l’ERP et le Web. Si ces actions sont mises en place, elles devraient réduire durablement les anomalies et permettre de produire des indicateurs plus fiables pour piloter l’activité.
+
+
