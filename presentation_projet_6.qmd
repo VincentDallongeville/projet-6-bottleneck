@@ -678,13 +678,52 @@ Périmètre : ventes et stock sur le mois d'octobre, tous produits actifs.
 
 ## Analyses exploratoires – Démarche générale
 
-<div class="frise">
-<span>1. Import</span>
-<span>2. Contrôles</span>
-<span>3. Nettoyage</span>
-<span>4. Consolidation</span>
-<span>5. Analyses</span>
-</div>
+::: {.timeline}
+
+::: {.timeline-line}
+:::
+
+::: {.timeline-item .top}
+::: {.timeline-label}
+1. Import
+:::
+::: {.timeline-point}
+:::
+:::
+
+::: {.timeline-item .bottom}
+::: {.timeline-point}
+:::
+::: {.timeline-label}
+2. Contrôles
+:::
+:::
+
+::: {.timeline-item .top}
+::: {.timeline-label}
+3. Nettoyage
+:::
+::: {.timeline-point}
+:::
+:::
+
+::: {.timeline-item .bottom .consolidation}
+::: {.timeline-point}
+:::
+::: {.timeline-label}
+4. Consolidation
+:::
+:::
+
+::: {.timeline-item .top}
+::: {.timeline-label}
+5. Analyses
+:::
+::: {.timeline-point}
+:::
+:::
+
+:::
 
 ## Consolidation – Contrôle de l'export Web
 

@@ -115,7 +115,7 @@
   white-space: nowrap;
 }
 
-/* Le titre est un h1  .qmd */
+/* Style du titre principal */
 .reveal .slide-couverture .titre-bottleneck h1 {
   display: block;
   width: 100%;
@@ -197,62 +197,88 @@
 
 /* 6. FRISE CHRONOLOGIQUE */
 
-/* Positionner la frise dans la slide */
+/* Conteneur général de la frise */
 .timeline {
   position: relative;
-  margin: 60px auto 40px;
-  max-width: 900px;
-  min-height: 120px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 96%;
+  max-width: 1250px;
+  min-height: 260px;
+  margin: 70px auto 35px;
 }
 
-/* Tracer la ligne horizontale */
+/* Ligne horizontale principale */
 .timeline-line {
   position: absolute;
   top: 50%;
-  left: 0;
   right: 0;
-  height: 4px;
+  left: 0;
+  height: 6px;
   background-color: var(--couleur-accent);
   transform: translateY(-50%);
   z-index: 1;
 }
 
-/* Répartir les étapes sur la largeur de la frise */
+/* Chaque étape occupe une largeur identique */
 .timeline-item {
   position: relative;
-  width: 16.66%;
-  float: left;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 20%;
+  height: 260px;
   text-align: center;
   z-index: 2;
 }
 
-/* Créer les points de la frise */
+/* Point placé exactement sur la ligne */
 .timeline-point {
-  width: 16px;
-  height: 16px;
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 22px;
+  height: 22px;
+  border: 4px solid var(--couleur-fond);
   border-radius: 50%;
   background-color: var(--couleur-titres);
-  margin: 0 auto;
-  position: relative;
-  top: -6px;
+  transform: translate(-50%, -50%);
+  z-index: 3;
 }
 
-/* Positionner les libellés situés au-dessus de la ligne */
+/* Cadre autour de chaque libellé */
+.timeline-label {
+  position: absolute;
+  left: 50%;
+  width: 82%;
+  box-sizing: border-box;
+  padding: 10px 8px;
+  border-radius: 12px;
+  background-color: var(--couleur-fond);
+  box-shadow: 0 5px 12px var(--couleur-ombre);
+  color: var(--couleur-textes);
+  font-size: 0.8em;
+  font-weight: 700;
+  line-height: 1.2;
+  text-align: center;
+  transform: translateX(-50%);
+}
+
+/* Cadres placés au-dessus de la ligne */
 .timeline-item.top .timeline-label {
-  margin-top: -50px;
-  margin-bottom: 10px;
-  font-weight: 700;
-  color: var(--couleur-textes);
+  top: 10%;
 }
 
-/* Positionner les libellés situés sous la ligne */
+/* Cadres placés sous la ligne */
 .timeline-item.bottom .timeline-label {
-  margin-top: 10px;
-  margin-bottom: 0;
-  font-weight: 700;
-  color: var(--couleur-textes);
+  bottom: 10%;
 }
 
+/* Élargir uniquement le cadre de l'étape Consolidation */
+.timeline-item.consolidation .timeline-label {
+  width: 105%;
+}
 
 /* 7. SCHEMA RELATIONNEL */
 
