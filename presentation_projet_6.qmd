@@ -166,7 +166,7 @@ graphique_distribution_prix <- ggplot(
     )
   ) +
   labs(
-    x = "Prix de vente corrigé",
+    x = "Prix de vente",
     y = "Nombre de références"
   ) +
   theme_minimal() +
@@ -192,11 +192,13 @@ graphique_boxplot_prix <- ggplot(
     )
   ) +
   labs(
-    x = "Prix de vente corrigé",
+    x = "Prix de vente",
     y = NULL
   ) +
   theme_minimal() +
   theme(
+    axis.title.x = element_text(size = 17),
+    axis.text.x = element_text(size = 15),
     axis.text.y = element_blank(),
     axis.ticks.y = element_blank(),
     panel.grid.minor = element_blank()
@@ -540,7 +542,7 @@ d'indicateurs fiables pour piloter les ventes, les stocks et les marges.
 ## Analyses exploratoires – Sources et Périmètre
 
 | Fichier | Origine | Contenu principal |
-|----|----|----|
+|----------------|----------------|----------------------------------------|
 | erp.xlsx | ERP interne | Références, prix, stocks, statuts |
 | web.xlsx | Export WooCommerce | Fiches produits, ventes d'octobre |
 | liaison.xlsx | Correspondance | Lien entre product_id (ERP) et id_web (Web) |
@@ -690,44 +692,117 @@ knitr::kable(
 
 ## Consolidation – Arbitrages de préparation
 
-:::::: columns
-::: {.column width="42%"}
-\### Problèmes
+::: {.arbitrages}
 
-- Prix de vente négatifs.
-- Stocks négatifs.
-- Statuts incohérents.
-- Produits sans SKU.
-- Lignes `attachment`.
+::: {.arbitrage-entete}
+
+::: {.arbitrage-colonne}
+Problèmes
 :::
 
-::: {.column width="16%"}
-```{=html}
-<div class="decision-arrow">→</div>
-```
+::: {.arbitrage-fleche}
+&nbsp;
 :::
 
-::: {.column width="42%"}
-\### Décisions
-
-- Prix conservés + colonne corrigée.
-- Stocks conservés, interprétation prudente.
-- Statut source conservé + contrôle calculé.
-- Produits sans SKU exclus de la consolidation.
-- Lignes `attachment` exclues.
+::: {.arbitrage-colonne}
+Décisions
 :::
-::::::
+
+:::
+
+::: {.arbitrage-ligne}
+
+::: {.arbitrage-probleme}
+Prix de vente négatifs
+:::
+
+::: {.arbitrage-fleche}
+→
+:::
+
+::: {.arbitrage-decision}
+Prix originaux conservés + colonne corrigée
+:::
+
+:::
+
+::: {.arbitrage-ligne}
+
+::: {.arbitrage-probleme}
+Stocks négatifs
+:::
+
+::: {.arbitrage-fleche}
+→
+:::
+
+::: {.arbitrage-decision}
+Stocks conservés, interprétation prudente
+:::
+
+:::
+
+::: {.arbitrage-ligne}
+
+::: {.arbitrage-probleme}
+Statuts incohérents
+:::
+
+::: {.arbitrage-fleche}
+→
+:::
+
+::: {.arbitrage-decision}
+Statut source conservé + contrôle calculé
+:::
+
+:::
+
+::: {.arbitrage-ligne}
+
+::: {.arbitrage-probleme}
+Produits sans SKU
+:::
+
+::: {.arbitrage-fleche}
+→
+:::
+
+::: {.arbitrage-decision}
+Produits exclus de la consolidation
+:::
+
+:::
+
+::: {.arbitrage-ligne}
+
+::: {.arbitrage-probleme}
+Lignes [attachment]{.accent}
+:::
+
+::: {.arbitrage-fleche}
+→
+:::
+
+::: {.arbitrage-decision}
+Lignes exclues des analyses
+:::
+
+:::
+
+:::
 
 ## Consolidation – Consolidation Web–ERP
 
-:::::::::::::::::::::: schema-rel
-:::::::: {.box .web}
+::::::: schema-rel
+
+::::: {.box .web}
 ::: box-title
 web_analytique
 :::
 
 ::: box-field
-sku
+[sku]{.accent}
 :::
 
 ::: box-field
@@ -741,45 +816,41 @@ product_type
 ::: box-field
 total_sales
 :::
-::::::::
+:::::
 
 ::: arrow
 →
 :::
 
-::::::: {.box .liaison}
+::::: {.box .liaison}
 ::: box-title
 liaison
 :::
 
 ::: box-field
-sku
+[id_web]{.accent}
 :::
 
 ::: box-field
-id_web
+[product_id]{.accent}
 :::
-
-::: box-field
-product_id
-:::
-:::::::
+:::::
 
 ::: arrow
 →
 :::
 
-:::::::: {.box .erp}
+::::: {.box .erp}
 ::: box-title
 erp_analytique
 :::
 
 ::: box-field
-product_id
+[product_id]{.accent}
 :::
 
 ::: box-field
-prix_vente
+prix_vente_corrige
 :::
 
 ::: box-field
@@ -789,18 +860,23 @@ quantite_stock
 ::: box-field
 statut_stock
 :::
-::::::::
-::::::::::::::::::::::
+:::::
 
-::: schema-legend
-Jointure : web_analytique.sku → liaison.sku → liaison.product_id →
-erp_analytique.product_id
+:::::::
+
+::: {.schema-legend}
+
+Jointure :
+
+`web_analytique.sku` → `liaison.id_web` → `liaison.product_id` → `erp_analytique.product_id`
+
 :::
+
 
 ## Analyses univariées du prix - Distribution des prix de vente
 
-::::: columns
-::: {.column width="68%"}
+::::::: columns
+::::: {.column width="65%"}
 ```{r}
 #| label: histogramme_prix_presentation
 #| echo: false
@@ -809,91 +885,87 @@ erp_analytique.product_id
 
 graphique_distribution_prix
 ```
-:::
+:::::
 
-::: {.column width="32%"}
-\### Prix de vente corrigés
+::::: {.column width="35%"}
+### Prix de vente
 
 - Minimum :
   `r scales::number(resume_prix_presentation$minimum, accuracy = 0.01, decimal.mark = ",", big.mark = " ")`
   €
-- Médiane :
+
+- [Médiane]{.accent} :
   `r scales::number(resume_prix_presentation$mediane, accuracy = 0.01, decimal.mark = ",", big.mark = " ")`
   €
-- Moyenne :
+
+- [Moyenne]{.accent} :
   `r scales::number(resume_prix_presentation$moyenne, accuracy = 0.01, decimal.mark = ",", big.mark = " ")`
   €
+
 - Maximum :
   `r scales::number(resume_prix_presentation$maximum, accuracy = 0.01, decimal.mark = ",", big.mark = " ")`
   €
-:::
+
+- [Moyenne supérieure à la médiane]{.accent}
+
+- [Quelques prix très élevés]{.accent}
 :::::
+:::::::
 
 ## Analyses univariées du prix - Dispersion et valeurs atypiques
 
 ```{r}
 #| label: boxplot_prix_presentation
 #| echo: false
-#| fig-width: 10
+#| fig-width: 18
 #| fig-height: 5.5
 
 graphique_boxplot_prix
 ```
 
-La distribution est asymétrique : quelques références haut de gamme
-présentent des prix nettement supérieurs au reste du catalogue.
+[Distribution asymétrique]{.accent} :
+quelques références haut de gamme dépassent nettement le reste du catalogue.
 
 ## Analyses complémentaires - Résultats commerciaux
 
-::::::::::::::: columns
-:::::: {.column width="33.33%"}
+::::::::: {.kpi-grid}
+::::::: kpi-column
 ::::: kpi-circle
 ::: kpi-value
-```         
-`r scales::number(kpi_commerciaux$ca_total_ht, accuracy = 0.01, decimal.mark = ",", big.mark = " ")` €
-```
-:::
-
-::: kpi-label
-```         
-Chiffre d'affaires HT en octobre
-```
+`r scales::number(kpi_commerciaux$ca_total_ht, accuracy = 1, decimal.mark = ",", big.mark = " ")` €
 :::
 :::::
-::::::
 
-:::::: {.column width="33.33%"}
+::: kpi-label
+[Chiffre d'affaires HT en octobre]{.accent}
+:::
+:::::::
+
+::::::: kpi-column
 ::::: kpi-circle
 ::: kpi-value
-```         
 `r scales::number(kpi_commerciaux$quantites_vendues, accuracy = 1, big.mark = " ")`
-```
-:::
-
-::: kpi-label
-```         
-Unités vendues en octobre
-```
 :::
 :::::
-::::::
 
-:::::: {.column width="33.33%"}
+::: kpi-label
+[Unités vendues en octobre]{.accent}
+:::
+:::::::
+
+::::::: kpi-column
 ::::: kpi-circle
 ::: kpi-value
-```         
 `r scales::number(kpi_commerciaux$references_vendues, accuracy = 1, big.mark = " ")`
-```
-:::
-
-::: kpi-label
-```         
-Références vendues sur `r kpi_commerciaux$references_catalogue`
-```
 :::
 :::::
-::::::
-:::::::::::::::
+
+::: kpi-label
+[Références vendues sur `r kpi_commerciaux$references_catalogue`]{.accent}
+:::
+:::::::
+
+:::::::::
 
 ## Analyses complémentaires - Contribution et concentration des ventes
 
@@ -1023,7 +1095,7 @@ permettent pas à elles seules d'établir un lien de causalité.
 ## Recommandations - Fiabiliser les données et les échanges
 
 | Problèmes regroupés | Actions recommandées |
-|----|----|
+|------------------------------------|------------------------------------|
 | Prix négatifs ou atypiques | Bloquer les valeurs négatives et déclencher une validation pour les prix atypiques |
 | Stocks négatifs ou statuts incohérents | Séparer le stock physique des préventes et calculer automatiquement le statut depuis la quantité |
 | Disponibilité Web incohérente avec le stock | Mettre en place un contrôle automatique avant publication ou mise à jour |

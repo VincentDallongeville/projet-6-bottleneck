@@ -288,7 +288,58 @@
   width: 105%;
 }
 
-/* 7. SCHEMA RELATIONNEL */
+
+/* 7. ARBITRAGES DE PRÉPARATION */
+
+.arbitrages {
+  width: 92%;
+  margin: 0 auto;
+  color: var(--couleur-textes);
+  font-size: 0.82em;
+}
+
+.arbitrage-entete,
+.arbitrage-ligne {
+  display: grid;
+  grid-template-columns: 42% 16% 42%;
+  align-items: center;
+}
+
+.arbitrage-entete {
+  margin-bottom: 0.15em;
+  font-size: 1.08em;
+  font-weight: 700;
+}
+
+.arbitrage-colonne:first-child,
+.arbitrage-probleme {
+  text-align: left;
+}
+
+.arbitrage-colonne:last-child,
+.arbitrage-decision {
+  text-align: left;
+}
+
+.arbitrage-ligne {
+  min-height: 0;
+  margin: 0;
+}
+
+.arbitrage-probleme,
+.arbitrage-decision {
+  padding: 0.12em 0.45em;
+  line-height: 1.08;
+}
+
+.arbitrage-fleche {
+  color: var(--couleur-accent);
+  font-size: 1.05em;
+  font-weight: 700;
+  text-align: center;
+}
+
+/* 8. SCHEMA RELATIONNEL */
 
 /* Organiser les tables et les flèches sur une ligne */
 .schema-rel {
@@ -296,8 +347,8 @@
   align-items: center;
   justify-content: center;
   gap: 20px;
-  margin: 40px 0 20px;
-  flex-wrap: wrap;
+  margin: 40px 0 18px;
+  flex-wrap: nowrap;
 }
 
 /* Mettre en forme chaque table du schéma */
@@ -334,47 +385,98 @@
 
 /* Présenter la légende du schéma */
 .schema-legend {
-  margin-top: 10px;
+  width: 90%;
+  margin: 80px auto 0;
   color: var(--couleur-textes);
-  font-size: 0.9em;
+  font-size: 0.82em;
+  line-height: 1.35;
   text-align: center;
 }
 
+.schema-legend code {
+  color: var(--couleur-textes);
+  font-family: inherit;
+  font-weight: 600;
+}
 
-/* 8. INDICATEURS KPI */
 
-/* Créer un cercle pour afficher un indicateur clé */
-.kpi-circle {
+/* 9. INDICATEURS KPI */
+
+/* Répartir les trois blocs KPI sur toute la largeur */
+.reveal .slides section .kpi-grid {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  width: 100%;
+  margin: 0 auto;
+}
+
+/* Donner une largeur identique à chaque bloc */
+.reveal .slides section .kpi-column {
+  flex: 0 0 33.3333%;
+  width: 33.3333%;
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+  text-align: center;
+}
+
+/* Créer le cercle de l'indicateur */
+.reveal .slides section .kpi-circle {
   width: 220px;
   height: 220px;
-  margin: 25px auto 0;
+  box-sizing: border-box;
+  margin: 25px auto 14px;
   border-radius: 50%;
   background-color: var(--couleur-titres);
-  color: var(--couleur-blanc);
   display: flex;
-  flex-direction: column;
   align-items: center;
   justify-content: center;
+  overflow: hidden;
   text-align: center;
 }
 
-/* Afficher la valeur principale du KPI */
-.kpi-value {
-  margin-bottom: 12px;
-  font-size: 1.7em;
+/* Centrer le bloc contenant la valeur */
+.reveal .slides section .kpi-circle .kpi-value {
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  text-align: center;
+}
+
+/* Afficher la valeur en blanc dans le cercle */
+.reveal .slides section .kpi-circle .kpi-value p {
+  width: 100%;
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0 8px;
+  color: #FFFFFF !important;
+  font-size: 30px !important;
   font-weight: 700;
-  line-height: 1.1;
+  line-height: 1;
+  white-space: nowrap;
+  text-align: center;
 }
 
-/* Afficher le libellé du KPI */
-.kpi-label {
-  width: 75%;
-  font-size: 0.85em;
+/* Centrer le libellé sous le cercle */
+.reveal .slides section .kpi-label {
+  width: 220px;
+  margin: 0 auto;
+  text-align: center;
+}
+
+/* Mettre en forme le libellé */
+.reveal .slides section .kpi-label p,
+.reveal .slides section .kpi-label .accent {
+  margin: 0;
+  color: var(--couleur-accent) !important;
+  font-size: 24px !important;
+  font-weight: 700;
   line-height: 1.2;
+  text-align: center;
 }
 
-
-/* 9. MOTS IMPORTANTS */
+/* 10. MOTS IMPORTANTS */
 
 /* Classe réutilisable pour mettre un élément en évidence */
 .accent {
@@ -383,7 +485,7 @@
 }
 
 
-/* 10. ADAPTATION AUX PETITS ECRANS */
+/* 11. ADAPTATION AUX PETITS ECRANS */
 
 /* Réduire les éléments larges sur les écrans étroits */
 @media (max-width: 900px) {
