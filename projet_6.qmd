@@ -16,9 +16,12 @@ editor:
 
 ## Objectif du notebook
 
-Ce notebook analyse les ventes, les prix, les stocks et la marge des produits BottleNeck à partir de trois fichiers : ERP, liaison et Web.
+Ce notebook analyse les ventes, les prix, les stocks et la marge des
+produits BottleNeck à partir de trois fichiers : ERP, liaison et Web.
 
-Les données brutes sont conservées sans modification. Les étapes de préparation et les contrôles de qualité sont réalisés en R afin de documenter les choix effectués avant les analyses.
+Les données brutes sont conservées sans modification. Les étapes de
+préparation et les contrôles de qualité sont réalisés en R afin de
+documenter les choix effectués avant les analyses.
 
 # Étape 1 — Importation des packages et des données
 
@@ -83,7 +86,8 @@ knitr::kable(structure_sources)
 
 ## 2.1 Analyse exploratoire du fichier `erp.xlsx`
 
-Cette étape vérifie la structure de l'ERP, l'unicité des identifiants, la qualité des prix et la cohérence des stocks.
+Cette étape vérifie la structure de l'ERP, l'unicité des identifiants,
+la qualité des prix et la cohérence des stocks.
 
 ### 2.1.1 Dimensions, structure et aperçu des données
 
@@ -241,7 +245,10 @@ La comparaison permet d'identifier les produits dont le statut renseigné
 dans l'ERP diffère du statut calculé à partir de `stock_quantity`, selon
 la règle imposée par le template.
 
-Cette colonne sert uniquement à comparer le statut déclaré avec une règle calculée à partir de la quantité de stock. Elle n'est pas conservée dans la table analytique finale, car elle est redondante avec le statut d'origine.
+Cette colonne sert uniquement à comparer le statut déclaré avec une
+règle calculée à partir de la quantité de stock. Elle n'est pas
+conservée dans la table analytique finale, car elle est redondante avec
+le statut d'origine.
 
 ### 2.1.4 Contrôle des prix de vente
 
@@ -279,15 +286,20 @@ prix_vente_negatifs <- erp_raw |>
 knitr::kable(prix_vente_negatifs)
 ```
 
-Trois produits présentent un prix de vente négatif. Un prix négatif ne
-peut pas être utilisé tel quel dans les calculs de chiffre d'affaires ou
-de marge.
+Trois produits présentent un prix de vente négatif dans la source ERP.
+Ces valeurs sont considérées comme des erreurs de saisie et ne peuvent
+pas être utilisées telles quelles pour calculer le chiffre d'affaires ou
+la marge.
 
-L'hypothèse retenue est qu'il s'agit d'erreurs de saisie. Dans la table
-ERP analytique, ces valeurs seront corrigées dans une nouvelle colonne
-`prix_vente_corrige`, en utilisant leur valeur positive. Le prix
-d'origine restera conservé, ainsi qu'un indicateur permettant
-d'identifier les produits concernés.
+La valeur originale est conservée dans `prix_vente`. Une seconde
+colonne, `prix_vente_corrige`, contient la valeur positive utilisée pour
+les calculs. L'indicateur `prix_negatif` permet d'identifier les trois
+références corrigées.
+
+Les produits concernés ne disposent toutefois pas de correspondance dans
+la table de liaison. Ils sont donc exclus de `df_analyse` lors du
+premier `inner_join()`. Ils ne participent pas aux analyses combinant
+les données ERP, Web et liaison.
 
 ### 2.1.5 Contrôle des stocks
 
@@ -495,9 +507,9 @@ knitr::kable(controle_erp_analytique)
 
 ## 2.2 Analyse exploratoire du fichier `web.xlsx`
 
-L'export Web contient les données issues du site WordPress /
-WooCommerce. Il comporte des fiches produit, mais également des éléments
-techniques, notamment des pièces jointes telles que des images.
+L'export Web contient les données issues du site WooCommerce. Il
+comporte des fiches produit, mais également des éléments techniques,
+notamment des pièces jointes telles que des images.
 
 L'objectif de cette étape est d'identifier les lignes correspondant
 réellement à des produits, de contrôler les identifiants SKU et de
@@ -608,7 +620,9 @@ profil_sku_manquants <- sku_manquants_produits |>
 knitr::kable(profil_sku_manquants)
 ```
 
-Les quatre fiches produit sans SKU ne peuvent pas être reliées automatiquement à l'ERP. Elles sont donc exclues de la table Web analytique et signalées comme une limite de couverture des données.
+Les quatre fiches produit sans SKU ne peuvent pas être reliées
+automatiquement à l'ERP. Elles sont donc exclues de la table Web
+analytique et signalées comme une limite de couverture des données.
 
 #### Analyse complémentaire des identifiants présents dans `guid`
 
@@ -770,7 +784,9 @@ Les variables suivantes sont conservées dans la table `web_analytique` :
 - `product_type` : type de produit, utile aux segmentations ;
 - `total_sales` : quantité vendue au cours du mois d'octobre.
 
-Les dates Web correspondent à la création ou à la modification des fiches produit, et non aux dates de vente. Elles ne sont donc pas utilisées dans les analyses de ventes d'octobre.
+Les dates Web correspondent à la création ou à la modification des
+fiches produit, et non aux dates de vente. Elles ne sont donc pas
+utilisées dans les analyses de ventes d'octobre.
 
 ```{r}
 #| label: creation_web_analytique
@@ -1056,7 +1072,40 @@ df_analyse <- erp_analytique |>
 knitr::kable(head(df_analyse |> select(product_id, id_web, prix_vente_corrige, total_sales, post_title)))
 ```
 
-## 3.4 — Contrôles de cohérence de `df_analyse`
+### 3.4.1 — Contrôle des prix négatifs exclus du périmètre joint
+
+Les prix négatifs sont présents dans `erp_analytique`, mais les
+références concernées ne disposent pas de correspondance dans la table
+de liaison.
+
+```{r}
+#| label: controle_prix_negatifs_exclus
+#| echo: true
+
+# Identifier les références ERP à prix négatif absentes de la table de liaison
+prix_negatifs_exclus <- erp_analytique |>
+  filter(prix_vente < 0) |>
+  anti_join(
+    liaison_analytique,
+    by = "product_id"
+  ) |>
+  select(
+    product_id,
+    prix_vente,
+    prix_vente_corrige,
+    prix_negatif
+  )
+
+knitr::kable(prix_negatifs_exclus)
+```
+
+Les trois références à prix négatif sont exclues de `df_analyse`, non
+pas par une correction supplémentaire, mais parce qu'elles ne disposent
+pas de correspondance dans `liaison_analytique`. Elles restent présentes
+dans la table ERP analytique et sont prises en compte dans le contrôle
+qualité, mais elles ne peuvent pas être intégrées aux analyses Web–ERP.
+
+### 3.4.2 — Contrôles de cohérence de `df_analyse`
 
 ```{r}
 #| label: controle_df_analyse
@@ -1076,13 +1125,20 @@ controle_df_analyse <- df_analyse |>
 knitr::kable(controle_df_analyse)
 ```
 
-Le nombre de lignes de `df_analyse` correspond au nombre de produits
-pour lesquels on dispose à la fois : - d'une fiche produit Web avec
-SKU, - d'une correspondance dans la table de liaison, - et d'une
-référence dans l'ERP avec prix et stock.
+Le nombre de lignes de `df_analyse` correspond aux produits disposant
+simultanément :
 
-L'absence de doublons sur `product_id` et `id_web` confirme que les
-jointures n'ont pas dédoublonné les références de manière inattendue.
+- d'une référence dans l'ERP ;
+- d'une correspondance dans la table de liaison ;
+- d'une fiche produit Web avec un SKU correspondant.
+
+`df_analyse` ne représente donc pas l'ensemble des références ERP. Il
+représente le périmètre commun aux trois sources, après application des
+règles de jointure.
+
+Certaines anomalies détectées dans l'ERP peuvent donc être absentes de
+`df_analyse` si les références concernées ne possèdent pas de
+correspondance dans la table de liaison ou dans l'export Web.
 
 ## 3.5 — Synthèse de la couverture des données
 
@@ -1090,13 +1146,13 @@ jointures n'ont pas dédoublonné les références de manière inattendue.
 #| label: resume_couverture_donnees
 #| echo: true
 
-# Synthèse de la couverture des données après jointure
+# Synthèse de la couverture des données après préparation des tables
 resume_couverture <- tibble(
   etape = c(
     "Produits dans ERP",
-    "Produits dans Web (avec SKU)",
-    "Correspondances dans liaison (id_web renseignés)",
-    "Produits dans df_analyse (ERP + liaison + Web)"
+    "Produits dans Web avec SKU",
+    "Correspondances dans la liaison",
+    "Produits dans df_analyse"
   ),
   nombre = c(
     nrow(erp_analytique),
@@ -1578,8 +1634,9 @@ synthese_pareto_ca
 
 Les 433 produits générant le plus de chiffre d'affaires permettent de
 cumuler au moins 80 % du chiffre d'affaires HT total. Ils représentent
-60,8 % des 712 références du catalogue analysé.
-La règle théorique du 80/20 n'est donc pas observée : le chiffre d'affaires est réparti sur une part importante du catalogue.
+60,8 % des 712 références du catalogue analysé. La règle théorique du
+80/20 n'est donc pas observée : le chiffre d'affaires est réparti sur
+une part importante du catalogue.
 
 ## 5.2 Analyse des ventes en quantité
 
@@ -1642,7 +1699,8 @@ ggplot(
 ```
 
 ### 5.2.2 Calcul du 20/80 en quantité
-#### Calcul du cumul 
+
+#### Calcul du cumul
 
 ```{r}
 
@@ -1669,6 +1727,7 @@ pareto_quantite |>
   ) |>
   head(10)
 ```
+
 #### Seuil des 80 %
 
 ```{r}
@@ -1695,6 +1754,7 @@ seuil_80_quantite |>
     part_quantite_cumulee
   )
 ```
+
 #### Synthèse
 
 ```{r}
@@ -1719,9 +1779,16 @@ synthese_pareto_quantite <- tibble(
 
 synthese_pareto_quantite
 ```
-Les 432 produits les plus vendus permettent de cumuler au moins 80 % des quantités vendues. Ils représentent 60,7 % des 712 références du catalogue analysé.
 
-Ce résultat est très proche de celui obtenu pour le chiffre d'affaires : 433 références, soit 60,8 % du catalogue, sont nécessaires pour atteindre 80 % du CA HT. Les ventes en quantité et le chiffre d'affaires sont donc répartis sur un grand nombre de références ; la règle indicative de Pareto 80/20 n'est pas observée dans ce jeu de données.
+Les 432 produits les plus vendus permettent de cumuler au moins 80 % des
+quantités vendues. Ils représentent 60,7 % des 712 références du
+catalogue analysé.
+
+Ce résultat est très proche de celui obtenu pour le chiffre d'affaires :
+433 références, soit 60,8 % du catalogue, sont nécessaires pour
+atteindre 80 % du CA HT. Les ventes en quantité et le chiffre d'affaires
+sont donc répartis sur un grand nombre de références ; la règle
+indicative de Pareto 80/20 n'est pas observée dans ce jeu de données.
 
 ## 5.3 Analyse des stocks
 
@@ -1733,9 +1800,9 @@ restait identique.
 
 Le template présente cet indicateur comme une rotation de stock.
 Cependant, les données couvrent seulement un mois de ventes et un stock
-à un instant donné. Il s'agit donc d'une **couverture estimée de stock**,
-et non d'une rotation de stock annuelle calculée à partir d'un stock
-moyen.
+à un instant donné. Il s'agit donc d'une **couverture estimée de
+stock**, et non d'une rotation de stock annuelle calculée à partir d'un
+stock moyen.
 
 #### Calcul de l'indicateur
 
@@ -1852,9 +1919,9 @@ ggplot(
 ```
 
 Une couverture élevée peut signaler un stock important par rapport aux
-ventes du mois. Ce résultat doit toutefois être interprété avec prudence,
-car il ne tient pas compte de la saisonnalité ni de l'évolution des
-ventes sur une année complète.
+ventes du mois. Ce résultat doit toutefois être interprété avec
+prudence, car il ne tient pas compte de la saisonnalité ni de
+l'évolution des ventes sur une année complète.
 
 ### 5.3.2 Valorisation des stocks en euros
 
@@ -1948,13 +2015,17 @@ disponible.
 
 ### 5.4.1 Calcul du taux de marge
 
-Le taux de marge mesure le gain brut réalisé sur la vente d'un produit par rapport à son prix d'achat. Il permet de comparer la rentabilité relative des références, indépendamment de leur quantité vendue.
+Le taux de marge mesure le gain brut réalisé sur la vente d'un produit
+par rapport à son prix d'achat. Il permet de comparer la rentabilité
+relative des références, indépendamment de leur quantité vendue.
 
 Le taux de marge est calculé selon la formule suivante :
 
 Taux de marge = ((prix de vente HT - prix d'achat) / prix d'achat) × 100
 
-La colonne `prix_vente_corrige` est utilisée directement, car elle correspond déjà au prix de vente HT corrigé. Créer une nouvelle colonne `prix_ht` serait redondant.
+La colonne `prix_vente_corrige` est utilisée directement, car elle
+correspond déjà au prix de vente HT corrigé. Créer une nouvelle colonne
+`prix_ht` serait redondant.
 
 ```{r}
 #| label: calcul-taux-marge
@@ -2000,13 +2071,23 @@ marge_negative <- df_marge |>
 
 marge_negative
 ```
-Une seule référence présente un taux de marge négatif : un champagne affiché à 12,60 € HT pour un prix d'achat de 77,50 € HT. Cette référence n'a enregistré aucune vente en octobre et n'a donc généré ni chiffre d'affaires ni perte commerciale sur la période.
 
-Une hypothèse possible est une erreur de saisie de la virgule dans le prix de vente : un prix de 126 € HT, au lieu de 12,60 € HT, conduirait à un taux de marge de 62,6 %, proche du taux moyen observé pour les champagnes. Cette hypothèse ne peut toutefois pas être confirmée à partir des données disponibles. La valeur initiale est donc conservée.
+Une seule référence présente un taux de marge négatif : un champagne
+affiché à 12,60 € HT pour un prix d'achat de 77,50 € HT. Cette référence
+n'a enregistré aucune vente en octobre et n'a donc généré ni chiffre
+d'affaires ni perte commerciale sur la période.
+
+Une hypothèse possible est une erreur de saisie de la virgule dans le
+prix de vente : un prix de 126 € HT, au lieu de 12,60 € HT, conduirait à
+un taux de marge de 62,6 %, proche du taux moyen observé pour les
+champagnes. Cette hypothèse ne peut toutefois pas être confirmée à
+partir des données disponibles. La valeur initiale est donc conservée.
 
 ### 5.4.3 Analyse des marges positives
 
-Afin d'analyser la distribution des marges commerciales habituelles sans être influencée par les références vendues à perte, une table de travail contenant uniquement les taux de marge positifs est créée.
+Afin d'analyser la distribution des marges commerciales habituelles sans
+être influencée par les références vendues à perte, une table de travail
+contenant uniquement les taux de marge positifs est créée.
 
 ```{r}
 #| label: taux-marge-positif
@@ -2027,7 +2108,11 @@ df_marge_positive |>
 
 ### 5.4.4 Taux de marge moyen par type de produit
 
-Le taux de marge moyen est calculé pour chaque type de produit afin de comparer les politiques de prix et de coût selon les familles de produits. Le calcul est réalisé sur les marges positives ou nulles afin d’éviter qu’une éventuelle vente à perte ne modifie artificiellement la moyenne d’une catégorie.
+Le taux de marge moyen est calculé pour chaque type de produit afin de
+comparer les politiques de prix et de coût selon les familles de
+produits. Le calcul est réalisé sur les marges positives ou nulles afin
+d’éviter qu’une éventuelle vente à perte ne modifie artificiellement la
+moyenne d’une catégorie.
 
 ```{r}
 #| label: taux-marge-type-produit
@@ -2081,30 +2166,47 @@ ggplot(
   )
 ```
 
-Le taux de marge moyen est le plus élevé pour le cognac (119 %), suivi du whisky (118 %) et du gin (110 %). Ces catégories regroupent toutefois un nombre limité de références, respectivement 8, 14 et 2, ce qui invite à interpréter ces résultats avec prudence.
+Le taux de marge moyen est le plus élevé pour le cognac (119 %), suivi
+du whisky (118 %) et du gin (110 %). Ces catégories regroupent toutefois
+un nombre limité de références, respectivement 8, 14 et 2, ce qui invite
+à interpréter ces résultats avec prudence.
 
-Le vin, qui représente la grande majorité des références analysées avec 657 produits, présente un taux de marge moyen de 93,8 %. Le champagne affiche un taux moyen plus faible, de 67,9 % sur 27 références. Ce résultat est cohérent avec les analyses précédentes : les champagnes concentrent une forte valeur de stock et une part importante du chiffre d'affaires, mais leur taux de marge moyen est inférieur à celui des vins.
+Le vin, qui représente la grande majorité des références analysées avec
+657 produits, présente un taux de marge moyen de 93,8 %. Le champagne
+affiche un taux moyen plus faible, de 67,9 % sur 27 références. Ce
+résultat est cohérent avec les analyses précédentes : les champagnes
+concentrent une forte valeur de stock et une part importante du chiffre
+d'affaires, mais leur taux de marge moyen est inférieur à celui des
+vins.
 
-Ces résultats décrivent des taux de marge moyens par référence. Ils ne permettent pas à eux seuls de déterminer quelles catégories génèrent le plus de marge en euros, car cette analyse nécessiterait de prendre en compte les quantités vendues.
-
+Ces résultats décrivent des taux de marge moyens par référence. Ils ne
+permettent pas à eux seuls de déterminer quelles catégories génèrent le
+plus de marge en euros, car cette analyse nécessiterait de prendre en
+compte les quantités vendues.
 
 ## 5.5 Analyse des corrélations entre stock, ventes et prix
 
-Cette section explore les relations linéaires entre trois variables clés :
+Cette section explore les relations linéaires entre trois variables clés
+:
 
 - `quantite_stock` : quantité en stock dans l’ERP ;
 - `total_sales` : quantité vendue en octobre (Web) ;
 - `prix_vente_corrige` : prix de vente HT corrigé.
 
-L’objectif est de détecter d’éventuelles corrélations fortes entre ces variables, par exemple :
+L’objectif est de détecter d’éventuelles corrélations fortes entre ces
+variables, par exemple :
 
-- un lien entre le niveau de stock et les ventes (les produits très vendus sont-ils mieux approvisionnés ?) ;
-- un lien entre le prix et les ventes (les produits chers se vendent-ils moins ?) ;
-- un lien entre le prix et le stock (les produits chers ont-ils des stocks plus faibles ?).
+- un lien entre le niveau de stock et les ventes (les produits très
+  vendus sont-ils mieux approvisionnés ?) ;
+- un lien entre le prix et les ventes (les produits chers se vendent-ils
+  moins ?) ;
+- un lien entre le prix et le stock (les produits chers ont-ils des
+  stocks plus faibles ?).
 
 ### 5.5.1 Calcul de la matrice de corrélation
 
-On calcule les corrélations de Pearson entre les trois variables sur le périmètre de `df_analyse`.
+On calcule les corrélations de Pearson entre les trois variables sur le
+périmètre de `df_analyse`.
 
 ```{r}
 #| label: correlation-matrice
@@ -2129,7 +2231,8 @@ Les valeurs de corrélation varient entre -1 et 1 :
 
 - une valeur proche de 1 indique une forte corrélation positive ;
 - une valeur proche de -1 indique une forte corrélation négative ;
-- une valeur proche de 0 indique une absence de relation linéaire marquée.
+- une valeur proche de 0 indique une absence de relation linéaire
+  marquée.
 
 ### 5.5.2 Visualisation sous forme de heatmap
 
@@ -2192,12 +2295,12 @@ modérée **(r = 0,438)**. Les produits les plus vendus tendent donc à
 disposer d'un stock plus important, sans que cette relation soit forte.
 
 La corrélation entre le prix de vente et les quantités vendues est
-négative et modérée **(r = -0,516)**. Les produits les plus chers tendent
-à être vendus en plus faibles quantités.
+négative et modérée **(r = -0,516)**. Les produits les plus chers
+tendent à être vendus en plus faibles quantités.
 
 Enfin, la corrélation entre le prix de vente et la quantité en stock est
-très faible et négative **(r = -0,106)**. Le prix semble donc avoir peu de
-relation linéaire avec le niveau de stock.
+très faible et négative **(r = -0,106)**. Le prix semble donc avoir peu
+de relation linéaire avec le niveau de stock.
 
 Ces corrélations décrivent des relations linéaires et ne permettent pas
 d'établir un lien de causalité. Elles sont également calculées sur un
@@ -2269,6 +2372,25 @@ knitr::kable(
   head(df_export),
   digits = 2
 )
+
+# Contrôler la traçabilité des prix dans la vue exportée
+controle_trace_prix_export <- df_export |>
+  summarise(
+    prix_originaux_negatifs = sum(
+      prix_vente_original_ht < 0,
+      na.rm = TRUE
+    ),
+    prix_corriges_negatifs = sum(
+      prix_vente_corrige_ht < 0,
+      na.rm = TRUE
+    ),
+    corrections_identifiees = sum(
+      indicateur_prix_negatif == 1,
+      na.rm = TRUE
+    )
+  )
+
+knitr::kable(controle_trace_prix_export)
 ```
 
 ```{r}
@@ -2286,18 +2408,22 @@ Le fichier Excel contient les références correctement appariées entre
 les données ERP, de liaison et Web, ainsi que les indicateurs de chiffre
 d'affaires, de couverture estimée de stock, de valorisation et de marge.
 
+La vue `df_export` reprend uniquement le périmètre de `df_analyse`,
+c'est-à-dire les références présentes dans les trois sources. Les trois
+produits ERP à prix négatif étant absents de la table de liaison, ils ne
+sont pas présents dans cette vue exportée.
 
 # Étape 6 — Limites, recommandations et conclusion
 
 ## 6.1 Erreurs, incohérences et arbitrages
 
-Les fichiers sources ont été conservés sans modification. Les anomalies et
-incohérences identifiées ont été traitées dans les vues analytiques, en
-conservant autant que possible la valeur d'origine et la trace des choix
-effectués.
+Les fichiers sources ont été conservés sans modification. Les anomalies
+et incohérences identifiées ont été traitées dans les vues analytiques,
+en conservant autant que possible la valeur d'origine et la trace des
+choix effectués.
 
-| # | Élément identifié | Décision retenue |
-|---|---|---|
+| \# | Élément identifié | Décision retenue |
+|----|----|----|
 | 1 | Lignes `attachment` dans l'export Web | Exclues de la table Web analytique, car elles correspondent à des pièces jointes et non à des produits. |
 | 2 | 4 fiches produit sans SKU | Exclues de la table Web analytique, car elles ne peuvent pas être rapprochées avec une règle de jointure homogène. |
 | 3 | Références ERP sans `id_web` | Conservées dans l'ERP, mais exclues des analyses combinant les données Web et ERP. |
@@ -2309,97 +2435,151 @@ effectués.
 | 9 | Prix de vente inférieur au prix d'achat pour une référence | Conservé sans correction, car une erreur de saisie est plausible mais non démontrée par les données. |
 | 10 | Incohérences de catégories / familles entre Web et ERP | Conservées telles quelles dans chaque source ; les écarts seront documentés lors des analyses combinées et interprétés avec prudence. |
 | 11 | Valeurs manquantes ou incohérentes dans certaines colonnes (ex. `category`, `family`, `status`) | Conservées ; les catégories / familles manquantes sont traitées comme "Non renseigné" dans les agrégations. |
-| 12 | Problèmes de jointure / doublons potentiels lors du rapprochement Web–ERP (clés non uniques, plusieurs lignes ERP pour un même produit Web) | Pris en compte dans la conception des requêtes : chaque indicateur fait sa propre jointure, avec des clés explicites et des contrôles de cohérence. | 
-: {tbl-colwidths="[5,45,50]"}
+| 12 | Problèmes de jointure / doublons potentiels lors du rapprochement Web–ERP (clés non uniques, plusieurs lignes ERP pour un même produit Web) | Pris en compte dans la conception des requêtes : chaque indicateur fait sa propre jointure, avec des clés explicites et des contrôles de cohérence. |
 
 ## 6.2 Recommandations pour améliorer la qualité des données
 
 ### 6.2.1 Processus de saisie et intégration des données
 
-1. **Encadrer la saisie des prix et des quantités**
+1.  **Encadrer la saisie des prix et des quantités**
 
-   - Problème visé : prix de vente négatifs, quantités de stock négatives, prix de vente < prix d'achat.
-   - Recommandation : mettre en place des règles de validation dans les formulaires et les imports (ERP et back-office Web) :
-     - bloquer ou alerter si `prix_vente < 0`, `prix_achat < 0`, `quantite_stock < 0` ;
-     - alerter si `prix_vente < prix_achat` (marge négative).
-   - Bénéfice attendu : réduction drastique des erreurs de saisie et des marges négatives involontaires.
+    - Problème visé : prix de vente négatifs, quantités de stock
+      négatives, prix de vente \< prix d'achat.
+    - Recommandation : mettre en place des règles de validation dans les
+      formulaires et les imports (ERP et back-office Web) :
+      - bloquer ou alerter si `prix_vente < 0`, `prix_achat < 0`,
+        `quantite_stock < 0` ;
+      - alerter si `prix_vente < prix_achat` (marge négative).
+    - Bénéfice attendu : réduction drastique des erreurs de saisie et
+      des marges négatives involontaires.
 
-2. **Uniformiser les règles de création des produits sur les deux canaux**
+2.  **Uniformiser les règles de création des produits sur les deux
+    canaux**
 
-   - Problème visé : produits sans SKU, produits ERP sans `id_web`, incohérences entre produits Web et ERP.
-   - Recommandation :
-     - définir une règle claire : chaque produit vendu doit avoir un SKU unique, présent à la fois dans l'ERP et sur le Web ;
-     - rendre obligatoire le champ `id_web` (ou équivalent) lors de la création d'un produit dans l'ERP s'il est destiné à être vendu en ligne.
-   - Bénéfice attendu : moins de produits "orphelins", jointures Web–ERP plus fiables, vision unifiée du catalogue.
+    - Problème visé : produits sans SKU, produits ERP sans `id_web`,
+      incohérences entre produits Web et ERP.
+    - Recommandation :
+      - définir une règle claire : chaque produit vendu doit avoir un
+        SKU unique, présent à la fois dans l'ERP et sur le Web ;
+      - rendre obligatoire le champ `id_web` (ou équivalent) lors de la
+        création d'un produit dans l'ERP s'il est destiné à être vendu
+        en ligne.
+    - Bénéfice attendu : moins de produits "orphelins", jointures
+      Web–ERP plus fiables, vision unifiée du catalogue.
 
-3. **Normaliser la gestion des statuts de stock**
+3.  **Normaliser la gestion des statuts de stock**
 
-   - Problème visé : écarts entre `stock_status` et le statut calculé à partir de `qty_in_stock`.
-   - Recommandation :
-     - définir une règle unique : `stock_status` doit être dérivé automatiquement de `qty_in_stock` (ex. : `qty_in_stock = 0` → `Out of Stock`, sinon `In Stock`) ;
-     - éviter les mises à jour manuelles de `stock_status` sans mise à jour concomitante du stock.
-   - Bénéfice attendu : cohérence automatique entre stock et statut, moins d'interprétations contradictoires.
+    - Problème visé : écarts entre `stock_status` et le statut calculé à
+      partir de `qty_in_stock`.
+    - Recommandation :
+      - définir une règle unique : `stock_status` doit être dérivé
+        automatiquement de `qty_in_stock` (ex. : `qty_in_stock = 0` →
+        `Out of Stock`, sinon `In Stock`) ;
+      - éviter les mises à jour manuelles de `stock_status` sans mise à
+        jour concomitante du stock.
+    - Bénéfice attendu : cohérence automatique entre stock et statut,
+      moins d'interprétations contradictoires.
 
 ### 6.2.2 Gouvernance et contrôle qualité
 
-4. **Documenter et diffuser les règles de gestion**
+4.  **Documenter et diffuser les règles de gestion**
 
-   - Problème visé : incohérences de catégories / familles, valeurs manquantes, interprétations divergentes.
-   - Recommandation :
-     - rédiger un document de référence (data dictionary / règles de gestion) qui précise :
-       - la définition de chaque champ important (`category`, `family`, `status`, `sku`, etc.),
-       - les règles de remplissage (obligatoire / optionnel, valeurs autorisées),
-       - les conventions de nommage (ex. : majuscules/minuscules, format des SKU).
-     - diffuser ce document aux équipes concernées (logistique, e-commerce, finance, IT) et le mettre à jour régulièrement.
-   - Bénéfice attendu : meilleure homogénéité des données, onboarding plus facile des nouveaux collaborateurs, analyses plus fiables.
+    - Problème visé : incohérences de catégories / familles, valeurs
+      manquantes, interprétations divergentes.
+    - Recommandation :
+      - rédiger un document de référence (data dictionary / règles de
+        gestion) qui précise :
+        - la définition de chaque champ important (`category`, `family`,
+          `status`, `sku`, etc.),
+        - les règles de remplissage (obligatoire / optionnel, valeurs
+          autorisées),
+        - les conventions de nommage (ex. : majuscules/minuscules,
+          format des SKU).
+      - diffuser ce document aux équipes concernées (logistique,
+        e-commerce, finance, IT) et le mettre à jour régulièrement.
+    - Bénéfice attendu : meilleure homogénéité des données, onboarding
+      plus facile des nouveaux collaborateurs, analyses plus fiables.
 
-5. **Mettre en place des contrôles réguliers de qualité des données**
+5.  **Mettre en place des contrôles réguliers de qualité des données**
 
-   - Problème visé : anomalies qui passent malgré les règles de saisie (erreurs résiduelles, dérive dans le temps).
-   - Recommandation :
-     - créer des requêtes ou scripts de contrôle (quotidiens ou hebdomadaires) qui listent :
-       - produits avec prix négatifs ou marge négative,
-       - produits avec stock négatif,
-       - produits sans SKU,
-       - produits avec incohérence de statut,
-       - écarts de catégorie / famille entre Web et ERP.
-     - envoyer ces listes aux équipes concernées pour correction.
-   - Bénéfice attendu : détection précoce des anomalies résiduelles, amélioration continue de la qualité des données.
+    - Problème visé : anomalies qui passent malgré les règles de saisie
+      (erreurs résiduelles, dérive dans le temps).
+    - Recommandation :
+      - créer des requêtes ou scripts de contrôle (quotidiens ou
+        hebdomadaires) qui listent :
+        - produits avec prix négatifs ou marge négative,
+        - produits avec stock négatif,
+        - produits sans SKU,
+        - produits avec incohérence de statut,
+        - écarts de catégorie / famille entre Web et ERP.
+      - envoyer ces listes aux équipes concernées pour correction.
+    - Bénéfice attendu : détection précoce des anomalies résiduelles,
+      amélioration continue de la qualité des données.
 
 ### 6.2.3 Architecture et outillage
 
-6. **Centraliser la gestion du catalogue produit**
+6.  **Centraliser la gestion du catalogue produit**
 
-   - Problème visé : doublons, incohérences Web/ERP, produits sans correspondance.
-   - Recommandation :
-     - faire de l'ERP (ou d'un PIM – Product Information Management) la source de vérité unique pour le catalogue produit ;
-     - alimenter le site Web à partir de cette source centrale via des flux automatisés (API, exports planifiés).
-   - Bénéfice attendu : un seul endroit où créer / modifier un produit, moins de divergences entre canaux.
+    - Problème visé : doublons, incohérences Web/ERP, produits sans
+      correspondance.
+    - Recommandation :
+      - faire de l'ERP (ou d'un PIM – Product Information Management) la
+        source de vérité unique pour le catalogue produit ;
+      - alimenter le site Web à partir de cette source centrale via des
+        flux automatisés (API, exports planifiés).
+    - Bénéfice attendu : un seul endroit où créer / modifier un produit,
+      moins de divergences entre canaux.
 
-7. **Automatiser les synchronisations Web–ERP à chaque événement clé**
+7.  **Automatiser les synchronisations Web–ERP à chaque événement clé**
 
-   - Problème visé : décalages entre stocks, statuts, prix, et disponibilité sur les deux canaux.
-   - Recommandation :
-     - mettre en place des jobs automatisés (ex. : toutes les heures, ou en temps réel si possible) qui :
-       - mettent à jour les stocks et statuts sur le Web à partir de l'ERP,
-       - remontent les ventes Web dans l'ERP à chaque commande.
-   - Bénéfice attendu : vision cohérente et à jour des stocks, des ventes et des marges ; réduction des ruptures ou sur-stocks liés à des informations obsolètes.
+    - Problème visé : décalages entre stocks, statuts, prix, et
+      disponibilité sur les deux canaux.
+    - Recommandation :
+      - mettre en place des jobs automatisés (ex. : toutes les heures,
+        ou en temps réel si possible) qui :
+        - mettent à jour les stocks et statuts sur le Web à partir de
+          l'ERP,
+        - remontent les ventes Web dans l'ERP à chaque commande.
+    - Bénéfice attendu : vision cohérente et à jour des stocks, des
+      ventes et des marges ; réduction des ruptures ou sur-stocks liés à
+      des informations obsolètes.
 
-8. **S'appuyer sur le SKU unique comme clé de jointure principale**
+8.  **S'appuyer sur le SKU unique comme clé de jointure principale**
 
-   - Problème visé : problèmes de jointure, doublons, clés non uniques.
-   - Recommandation :
-     - une fois la règle "SKU unique et obligatoire" mise en place, l'utiliser systématiquement comme clé de jointure entre Web et ERP ;
-     - s'assurer que cette clé reste unique et non nulle pour tous les produits actifs.
-   - Bénéfice attendu : jointures Web–ERP plus robustes, analyses combinées plus fiables, moins de traitements correctifs a posteriori.
-   
-   
+    - Problème visé : problèmes de jointure, doublons, clés non uniques.
+    - Recommandation :
+      - une fois la règle "SKU unique et obligatoire" mise en place,
+        l'utiliser systématiquement comme clé de jointure entre Web et
+        ERP ;
+      - s'assurer que cette clé reste unique et non nulle pour tous les
+        produits actifs.
+    - Bénéfice attendu : jointures Web–ERP plus robustes, analyses
+      combinées plus fiables, moins de traitements correctifs a
+      posteriori.
+
 ## 6.3 Conclusion
 
-Ce projet a consisté à explorer, nettoyer et analyser des données produits et ventes provenant de deux sources : un export du site e-commerce et un ERP interne. L’objectif était de construire des vues analytiques fiables, d’identifier les anomalies et incohérences dans les données, et de proposer des pistes d’amélioration concrètes pour la suite.
+Ce projet a consisté à explorer, nettoyer et analyser des données
+produits et ventes provenant de deux sources : un export du site
+e-commerce et un ERP interne. L’objectif était de construire des vues
+analytiques fiables, d’identifier les anomalies et incohérences dans les
+données, et de proposer des pistes d’amélioration concrètes pour la
+suite.
 
-L’analyse a montré plusieurs limites importantes : des produits sans SKU, des références ERP sans correspondance sur le Web, des prix ou des stocks négatifs, des incohérences de catégories et de statuts, et des risques de doublons ou de clés de jointure non uniques. Ces problèmes rendent les analyses combinant les deux canaux fragiles et obligent à interpréter les indicateurs avec prudence, en gardant en tête que certaines situations peuvent être mal représentées.
+L’analyse a montré plusieurs limites importantes : des produits sans
+SKU, des références ERP sans correspondance sur le Web, des prix ou des
+stocks négatifs, des incohérences de catégories et de statuts, et des
+risques de doublons ou de clés de jointure non uniques. Ces problèmes
+rendent les analyses combinant les deux canaux fragiles et obligent à
+interpréter les indicateurs avec prudence, en gardant en tête que
+certaines situations peuvent être mal représentées.
 
-Les recommandations portent sur trois axes : mieux encadrer la saisie et l’intégration des données (validation des prix, des quantités, des statuts), mettre en place une gouvernance simple mais efficace (règles documentées et partagées, contrôles réguliers), et faire évoluer l’architecture vers une source de vérité centrale avec des synchronisations automatiques entre l’ERP et le Web. Si ces actions sont mises en place, elles devraient réduire durablement les anomalies et permettre de produire des indicateurs plus fiables pour piloter l’activité.
-
-
+Les recommandations portent sur trois axes : mieux encadrer la saisie et
+l’intégration des données (validation des prix, des quantités, des
+statuts), mettre en place une gouvernance simple mais efficace (règles
+documentées et partagées, contrôles réguliers), et faire évoluer
+l’architecture vers une source de vérité centrale avec des
+synchronisations automatiques entre l’ERP et le Web. Si ces actions sont
+mises en place, elles devraient réduire durablement les anomalies et
+permettre de produire des indicateurs plus fiables pour piloter
+l’activité.
