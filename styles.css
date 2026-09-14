@@ -606,3 +606,59 @@
 .marge-indicateurs .accent {
   font-size: 1em;
 }
+
+/* Slide 15 */
+/* Indicateurs de corrélation de la slide 15 */
+.correlation-indicateurs {
+  font-size: 1em;
+  line-height: 1.15;
+}
+
+.correlation-indicateurs h3 {
+  margin-top: 0.35em;
+  margin-bottom: 0.35em;
+}
+
+.correlation-indicateurs ul {
+  margin-top: 0.1em;
+  margin-bottom: 0.25em;
+}
+
+.correlation-indicateurs li {
+  margin: 0.15em 0;
+  line-height: 1.15;
+}
+
+/* Slide 16 */
+.table-recommandations {
+  font-size: 0.9em;
+  width: 100%;
+  margin-top: 0.5em;
+}
+
+.table-recommandations table {
+  width: 100%;
+  table-layout: fixed;
+  border-collapse: collapse;
+}
+
+.table-recommandations th,
+.table-recommandations td {
+  padding: 0.45em 0.6em;
+  vertical-align: middle;
+  line-height: 1.15;
+}
+
+.table-recommandations th:first-child,
+.table-recommandations td:first-child {
+  width: 35%;
+}
+
+.table-recommandations th:last-child,
+.table-recommandations td:last-child {
+  width: 65%;
+}
+
+.table-recommandations code {
+  font-size: 0.9em;
+}
