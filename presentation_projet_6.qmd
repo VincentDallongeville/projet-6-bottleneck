@@ -1184,11 +1184,11 @@ graphique_valorisation_type_presentation
     big.mark = " "
   )` € HT]{.accent}
 
-- [Vin et champagne : `r scales::percent(
+- Vin et champagne : [`r scales::percent(
     kpi_stock_presentation$part_vin_champagne,
     accuracy = 0.1,
     decimal.mark = ","
-  )` du stock]{.accent}
+  )`]{.accent} du stock
 
 ### Couverture théorique
 
