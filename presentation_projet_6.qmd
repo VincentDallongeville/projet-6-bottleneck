@@ -253,6 +253,14 @@ nombre_references_80_quantite <- pareto_quantite_presentation |>
   pull(rang)
 
 resume_contribution_presentation <- tibble::tibble(
+  ca_total = sum(
+    pareto_ca_presentation$chiffre_affaires_ht,
+    na.rm = TRUE
+  ),
+  quantites_totales = sum(
+    pareto_quantite_presentation$quantite_vendue_octobre,
+    na.rm = TRUE
+  ),
   references_80_ca = nombre_references_80_ca,
   part_catalogue_80_ca = nombre_references_80_ca / nrow(df_presentation),
   references_80_quantite = nombre_references_80_quantite,
@@ -260,50 +268,79 @@ resume_contribution_presentation <- tibble::tibble(
     nrow(df_presentation)
 )
 
-graphique_top_ca_presentation <- ggplot(
-  top_10_ca_presentation,
+graphique_pareto_ca_presentation <- ggplot(
+  pareto_ca_presentation,
   aes(
-    x = reorder(nom_produit, chiffre_affaires_ht),
-    y = chiffre_affaires_ht
+    x = rang,
+    y = part_ca_cumulee
   )
 ) +
-  geom_col(fill = "#4C86B7") +
-  geom_text(
-    aes(
-      label = scales::number(
-        chiffre_affaires_ht,
-        accuracy = 1,
-        decimal.mark = ",",
-        big.mark = " "
-      )
-    ),
-    hjust = -0.1,
-    size = 3.5
+  geom_line(
+    color = "#4C86B7",
+    linewidth = 1.2
   ) +
-  coord_flip() +
-  scale_x_discrete(
-    labels = function(x) stringr::str_wrap(x, width = 34)
+  geom_hline(
+    yintercept = 0.80,
+    color = "#D4891A",
+    linetype = "dashed",
+    linewidth = 1
+  ) +
+  geom_vline(
+    xintercept = nombre_references_80_ca,
+    color = "#D4891A",
+    linetype = "dashed",
+    linewidth = 1
+  ) +
+  annotate(
+    "text",
+    x = nombre_references_80_ca,
+    y = 0.84,
+    label = paste0(
+      nombre_references_80_ca,
+      " références"
+    ),
+    color = "#D4891A",
+    hjust = -0.05,
+    size = 4
+  ) +
+  scale_x_continuous(
+    labels = scales::label_number(
+      big.mark = " ",
+      decimal.mark = ","
+    )
   ) +
   scale_y_continuous(
-    labels = scales::label_number(
-      decimal.mark = ",",
-      big.mark = " ",
-      suffix = " €"
-    ),
-    expand = expansion(mult = c(0, 0.16))
+    limits = c(0, 1),
+    labels = scales::label_percent(
+      accuracy = 1,
+      decimal.mark = ","
+    )
   ) +
-  labs(x = NULL, y = "Chiffre d'affaires HT") +
+  labs(
+    x = "Nombre de références",
+    y = "CA cumulé"
+  ) +
   theme_minimal() +
   theme(
-    axis.text.y = element_text(size = 8),
+    axis.title.x = element_text(size = 13),
+    axis.title.y = element_text(size = 13),
+    axis.text.x = element_text(size = 11),
+    axis.text.y = element_text(size = 11),
     panel.grid.minor = element_blank()
   )
 
 # Slide 13 ------------------------------------------------------------
 
+# Préparer les données nécessaires à l'analyse du stock
 df_stock_presentation <- df_presentation |>
   mutate(
-    type_produit = coalesce(type_produit, "Non renseigné"),
+    # Remplacer les types de produit manquants par une catégorie explicite
+    type_produit = coalesce(
+      type_produit,
+      "Non renseigné"
+    ),
+
+    # Estimer la couverture théorique du stock en mois
     couverture_stock_mois = if_else(
       !is.na(quantite_vendue_octobre) &
         quantite_vendue_octobre > 0 &
@@ -314,14 +351,33 @@ df_stock_presentation <- df_presentation |>
     )
   )
 
+# Calculer la valorisation du stock par type de produit
 valorisation_type_presentation <- df_stock_presentation |>
   group_by(type_produit) |>
   summarise(
-    valeur_stock = sum(valeur_stock_prix_achat_ht, na.rm = TRUE),
+    valeur_stock = sum(
+      valeur_stock_prix_achat_ht,
+      na.rm = TRUE
+    ),
     .groups = "drop"
   ) |>
   arrange(desc(valeur_stock))
 
+# Calculer la part de la valorisation portée par le vin et le champagne
+part_vin_champagne <- valorisation_type_presentation |>
+  filter(
+    type_produit %in% c("Vin", "Champagne")
+  ) |>
+  summarise(
+    part = sum(valeur_stock, na.rm = TRUE) /
+      sum(
+        valorisation_type_presentation$valeur_stock,
+        na.rm = TRUE
+      )
+  ) |>
+  pull(part)
+
+# Calculer les indicateurs principaux du stock
 kpi_stock_presentation <- df_stock_presentation |>
   summarise(
     valorisation_totale = sum(
@@ -332,13 +388,22 @@ kpi_stock_presentation <- df_stock_presentation |>
       couverture_stock_mois,
       na.rm = TRUE
     )
+  ) |>
+  mutate(
+    part_vin_champagne = part_vin_champagne
   )
 
+# Créer le graphique de valorisation du stock par type de produit
 graphique_valorisation_type_presentation <- ggplot(
   valorisation_type_presentation,
-  aes(x = reorder(type_produit, valeur_stock), y = valeur_stock)
+  aes(
+    x = reorder(type_produit, valeur_stock),
+    y = valeur_stock
+  )
 ) +
-  geom_col(fill = "#4C86B7") +
+  geom_col(
+    fill = "#4C86B7"
+  ) +
   geom_text(
     aes(
       label = scales::number(
@@ -359,51 +424,115 @@ graphique_valorisation_type_presentation <- ggplot(
       big.mark = " ",
       suffix = " €"
     ),
-    expand = expansion(mult = c(0, 0.20))
+    expand = expansion(
+      mult = c(0, 0.20)
+    )
   ) +
-  labs(x = NULL, y = "Valorisation nette au prix d'achat") +
+  labs(
+    x = NULL,
+    y = "Valorisation nette au prix d'achat"
+  ) +
   theme_minimal() +
-  theme(panel.grid.minor = element_blank())
+  theme(
+    panel.grid.minor = element_blank()
+  )
 
 # Slide 14 ------------------------------------------------------------
 
-marge_type_presentation <- df_presentation |>
-  filter(!is.na(type_produit), !is.na(marge_unitaire_ht)) |>
+# Calculer le taux de marge pour chaque référence
+df_marge_presentation <- df_presentation |>
+  mutate(
+    taux_marge = if_else(
+      !is.na(prix_achat_ht) &
+        prix_achat_ht > 0 &
+        !is.na(prix_vente_corrige_ht),
+      (prix_vente_corrige_ht - prix_achat_ht) /
+        prix_achat_ht * 100,
+      NA_real_
+    )
+  )
+
+# Conserver les références dont le taux de marge est positif ou nul
+df_marge_positive_presentation <- df_marge_presentation |>
+  filter(
+    !is.na(taux_marge),
+    taux_marge >= 0
+  )
+
+# Calculer le taux de marge moyen par type de produit
+taux_marge_type_presentation <- df_marge_positive_presentation |>
+  filter(!is.na(type_produit)) |>
   group_by(type_produit) |>
   summarise(
-    marge_unitaire_moyenne = mean(
-      marge_unitaire_ht,
+    taux_marge_moyen = mean(
+      taux_marge,
       na.rm = TRUE
     ),
+    nombre_references = n(),
     .groups = "drop"
   ) |>
-  arrange(desc(marge_unitaire_moyenne))
+  arrange(desc(taux_marge_moyen))
 
-kpi_marge_presentation <- df_presentation |>
+# Calculer les indicateurs principaux de marge
+kpi_marge_presentation <- df_marge_presentation |>
   summarise(
-    marge_totale_octobre = sum(marge_totale_ht, na.rm = TRUE),
+    marge_totale_octobre = sum(
+      marge_totale_ht,
+      na.rm = TRUE
+    ),
+    taux_marge_moyen = mean(
+      taux_marge[taux_marge >= 0],
+      na.rm = TRUE
+    ),
     references_marge_negative = sum(
-      marge_unitaire_ht < 0,
+      taux_marge < 0,
+      na.rm = TRUE
+    ),
+    taux_marge_maximum = max(
+      taux_marge,
+      na.rm = TRUE
+    ),
+    taux_marge_minimum_positif = min(
+      taux_marge[taux_marge >= 0],
       na.rm = TRUE
     )
   )
 
-graphique_marge_type_presentation <- ggplot(
-  marge_type_presentation,
+# Identifier les catégories présentant les taux moyens
+# le plus élevé et le plus faible
+categorie_taux_marge_max <- taux_marge_type_presentation |>
+  slice_max(
+    taux_marge_moyen,
+    n = 1,
+    with_ties = FALSE
+  )
+
+categorie_taux_marge_min <- taux_marge_type_presentation |>
+  slice_min(
+    taux_marge_moyen,
+    n = 1,
+    with_ties = FALSE
+  )
+
+# Créer le graphique du taux de marge moyen par type de produit
+graphique_taux_marge_type_presentation <- ggplot(
+  taux_marge_type_presentation,
   aes(
-    x = reorder(type_produit, marge_unitaire_moyenne),
-    y = marge_unitaire_moyenne
+    x = reorder(type_produit, taux_marge_moyen),
+    y = taux_marge_moyen
   )
 ) +
-  geom_col(fill = "#4C86B7") +
+  geom_col(
+    fill = "#4C86B7"
+  ) +
   geom_text(
     aes(
       label = scales::number(
-        marge_unitaire_moyenne,
-        accuracy = 0.01,
+        taux_marge_moyen,
+        accuracy = 0.1,
         decimal.mark = ",",
         big.mark = " ",
-        suffix = " €"
+        suffix = " %"
       )
     ),
     hjust = -0.1,
@@ -415,13 +544,20 @@ graphique_marge_type_presentation <- ggplot(
       accuracy = 1,
       decimal.mark = ",",
       big.mark = " ",
-      suffix = " €"
+      suffix = " %"
     ),
-    expand = expansion(mult = c(0, 0.18))
+    expand = expansion(
+      mult = c(0, 0.18)
+    )
   ) +
-  labs(x = NULL, y = "Marge unitaire moyenne") +
+  labs(
+    x = NULL,
+    y = "Taux de marge moyen"
+  ) +
   theme_minimal() +
-  theme(panel.grid.minor = element_blank())
+  theme(
+    panel.grid.minor = element_blank()
+  )
 
 # Slide 15 ------------------------------------------------------------
 
@@ -972,40 +1108,62 @@ quelques références haut de gamme dépassent nettement le reste du catalogue.
 ::::: columns
 ::: {.column width="68%"}
 ```{r}
-#| label: top_ca_presentation
+#| label: pareto_ca_presentation
 #| echo: false
 #| fig-width: 9
 #| fig-height: 5.5
 
-graphique_top_ca_presentation
+graphique_pareto_ca_presentation
 ```
 :::
 
-::: {.column width="32%"}
-\### Seuil des 80 %
+::: {.column .pareto-indicateurs width="32%"}
+### Seuil des 80 %
 
 **Chiffre d'affaires**
 
+- [`r scales::number(
+    resume_contribution_presentation$ca_total,
+    accuracy = 1,
+    decimal.mark = ",",
+    big.mark = " "
+  )` € HT]{.accent}
+
 - `r resume_contribution_presentation$references_80_ca` références
-- `r scales::percent(resume_contribution_presentation$part_catalogue_80_ca, accuracy = 0.1, decimal.mark = ",")`
+
+- `r scales::percent(
+    resume_contribution_presentation$part_catalogue_80_ca,
+    accuracy = 0.1,
+    decimal.mark = ","
+  )`
   du catalogue
 
 **Quantités vendues**
 
+- [`r scales::number(
+    resume_contribution_presentation$quantites_totales,
+    accuracy = 1,
+    big.mark = " "
+  )` unités]{.accent}
+
 - `r resume_contribution_presentation$references_80_quantite` références
-- `r scales::percent(resume_contribution_presentation$part_catalogue_80_quantite, accuracy = 0.1, decimal.mark = ",")`
+
+- `r scales::percent(
+    resume_contribution_presentation$part_catalogue_80_quantite,
+    accuracy = 0.1,
+    decimal.mark = ","
+  )`
   du catalogue
+
+- [Résultat quasi identique]{.accent}
 :::
 :::::
-
-Les ventes sont réparties sur une part importante du catalogue : la
-règle indicative des 80/20 n'est observée ni en chiffre d'affaires ni en
-quantité.
 
 ## Analyses complémentaires - Valorisation et couverture des stocks
 
 ::::: columns
-::: {.column width="68%"}
+
+::: {.column width="64%"}
 ```{r}
 #| label: valorisation_stock_presentation
 #| echo: false
@@ -1016,52 +1174,88 @@ graphique_valorisation_type_presentation
 ```
 :::
 
-::: {.column width="32%"}
-\### Valorisation totale
+::: {.column width="36%"}
+### Valorisation du stock
 
-`r scales::number(kpi_stock_presentation$valorisation_totale, accuracy = 0.01, decimal.mark = ",", big.mark = " ")`
-€ HT
+- [`r scales::number(
+    kpi_stock_presentation$valorisation_totale,
+    accuracy = 1,
+    decimal.mark = ",",
+    big.mark = " "
+  )` € HT]{.accent}
 
-\### Couverture médiane
+- [Vin et champagne : `r scales::percent(
+    kpi_stock_presentation$part_vin_champagne,
+    accuracy = 0.1,
+    decimal.mark = ","
+  )` du stock]{.accent}
 
-`r scales::number(kpi_stock_presentation$couverture_mediane, accuracy = 0.1, decimal.mark = ",")`
-mois
+### Couverture théorique
+
+- [`r scales::number(
+    kpi_stock_presentation$couverture_mediane,
+    accuracy = 0.1,
+    decimal.mark = ","
+  )` mois]{.accent}
+
+- Calculée sur les ventes d'[octobre]{.accent}
 :::
 :::::
 
-La moitié des références vendues dispose d'une couverture inférieure ou
-égale à la médiane affichée.
 
-## Analyses complémentaires - Marges commerciales
+## Analyses complémentaires - Taux de marge par catégorie
 
 ::::: columns
-::: {.column width="68%"}
+
+::: {.column width="64%"}
 ```{r}
-#| label: marge_type_presentation
+#| label: taux_marge_type_presentation
 #| echo: false
 #| fig-width: 9
 #| fig-height: 5.5
 
-graphique_marge_type_presentation
+graphique_taux_marge_type_presentation
 ```
 :::
 
-::: {.column width="32%"}
-### Marge totale
+::: {.column .marge-indicateurs width="36%"}
+### Résultats commerciaux
 
-`r scales::number(kpi_marge_presentation$marge_totale_octobre, accuracy = 0.01, decimal.mark = ",", big.mark = " ")`
-€ HT
+- [`r scales::number(
+    kpi_marge_presentation$marge_totale_octobre,
+    accuracy = 1,
+    decimal.mark = ",",
+    big.mark = " "
+  )` €]{.accent} HT de marge
 
-### Marges négatives
+- [`r scales::number(
+    kpi_marge_presentation$taux_marge_moyen,
+    accuracy = 0.1,
+    decimal.mark = ","
+  )` %]{.accent} de taux de marge moyen
 
-`r scales::number(kpi_marge_presentation$references_marge_negative, accuracy = 1, big.mark = " ")`
-références
+### Écarts par catégorie
+
+- `r categorie_taux_marge_max$type_produit` :
+  [`r scales::number(
+    categorie_taux_marge_max$taux_marge_moyen,
+    accuracy = 0.1,
+    decimal.mark = ","
+  )` %]{.accent}
+
+- `r categorie_taux_marge_min$type_produit` :
+  [`r scales::number(
+    categorie_taux_marge_min$taux_marge_moyen,
+    accuracy = 0.1,
+    decimal.mark = ","
+  )` %]{.accent}
+
+### Point de contrôle
+
+- `r kpi_marge_presentation$references_marge_negative` référence à [vérifier]{.accent}
 :::
-:::::
 
-Les niveaux de marge diffèrent selon les catégories ; les références à
-marge négative nécessitent une vérification des prix de vente et
-d'achat.
+:::::
 
 ## Analyses complémentaires - Corrélations entre les indicateurs
 

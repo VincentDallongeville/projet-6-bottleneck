@@ -2187,7 +2187,8 @@ compte les quantités vendues.
 ## 5.5 Analyse des corrélations entre stock, ventes et prix
 
 Cette section explore les relations linéaires entre trois variables clés
-:
+
+: 
 
 - `quantite_stock` : quantité en stock dans l’ERP ;
 - `total_sales` : quantité vendue en octobre (Web) ;
@@ -2423,7 +2424,7 @@ en conservant autant que possible la valeur d'origine et la trace des
 choix effectués.
 
 | \# | Élément identifié | Décision retenue |
-|----|----|----|
+|------------------------|------------------------|------------------------|
 | 1 | Lignes `attachment` dans l'export Web | Exclues de la table Web analytique, car elles correspondent à des pièces jointes et non à des produits. |
 | 2 | 4 fiches produit sans SKU | Exclues de la table Web analytique, car elles ne peuvent pas être rapprochées avec une règle de jointure homogène. |
 | 3 | Références ERP sans `id_web` | Conservées dans l'ERP, mais exclues des analyses combinant les données Web et ERP. |

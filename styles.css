@@ -537,3 +537,72 @@
   font-size: 0.95em;
   color: var(--couleur-textes);
 }
+
+/* Slide Pareto */
+
+/* Indicateurs de concentration de la slide Pareto */
+.pareto-indicateurs {
+  font-size: 0.78em;
+  line-height: 1.1;
+}
+
+/* Réduire l'espace sous le titre principal */
+.pareto-indicateurs h3 {
+  margin-bottom: 0.35em;
+}
+
+/* Harmoniser les deux sous-titres */
+.pareto-indicateurs strong {
+  display: block;
+  margin-top: 0.45em;
+  margin-bottom: 0.15em;
+  font-size: 1em;
+}
+
+/* Réduire la taille et l'espacement des puces */
+.pareto-indicateurs ul {
+  margin-top: 0.1em;
+  margin-bottom: 0.25em;
+}
+
+.pareto-indicateurs li {
+  margin: 0.08em 0;
+  font-size: 0.95em;
+  line-height: 1.1;
+}
+
+/* Harmoniser la taille des résultats mis en évidence */
+.pareto-indicateurs .accent {
+  font-size: 1em;
+}
+
+/* modification slide 14 */
+/* Indicateurs de marge de la slide 14 */
+.marge-indicateurs {
+  font-size: 0.78em;
+  line-height: 1.1;
+}
+
+/* Réduire l'espace sous les titres internes */
+.marge-indicateurs h3 {
+  margin-top: 0.35em;
+  margin-bottom: 0.25em;
+}
+
+/* Réduire la taille des listes */
+.marge-indicateurs ul {
+  margin-top: 0.1em;
+  margin-bottom: 0.25em;
+}
+
+/* Réduire l'espacement entre les puces */
+.marge-indicateurs li {
+  margin: 0.08em 0;
+  font-size: 0.95em;
+  line-height: 1.1;
+}
+
+/* Conserver une mise en évidence lisible */
+.marge-indicateurs .accent {
+  font-size: 1em;
+}
