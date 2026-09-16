@@ -25,14 +25,14 @@ library(dplyr)
 library(ggplot2)
 library(tidyr)
 
-# Importer la vue préparée correspondant au périmètre ERP–Web joint
-# Cette table sert aux analyses, graphiques et indicateurs de la présentation.
+# Importer la vue préparée correspondant au périmètre ERP–Web joint.
+# Cette table sert aux analyses, aux graphiques et aux indicateurs de la présentation.
 df_presentation <- read_excel(
   "doc/df_analyse_bottleneck.xlsx"
 )
 
 # Importer les sources brutes uniquement pour les contrôles présentés
-# sur les slides de qualité des données.
+# sur les diapositives consacrées à la qualité des données.
 web_raw <- read_excel(
   "data_raw/web.xlsx"
 )
@@ -663,7 +663,7 @@ Vincent Dallongeville
 
 ## Contexte et objectif
 
-BottleNeck souhaite fiabiliser les données produits et disposer
+BottleNeck souhaite fiabiliser ses données produits et disposer
 d'indicateurs fiables pour piloter les ventes, les stocks et les marges.
 
 - **Consolider** les données issues de l'ERP, du site Web et de la table
@@ -675,15 +675,15 @@ d'indicateurs fiables pour piloter les ventes, les stocks et les marges.
 - **Recommander** des règles de contrôle pour fiabiliser les données et
   leurs échanges.
 
-## Analyses exploratoires – Sources et Périmètre
+## Analyses exploratoires – Sources et périmètre
 
 | Fichier | Origine | Contenu principal |
 |----------------|----------------|----------------------------------------|
 | erp.xlsx | ERP interne | Références, prix, stocks, statuts |
 | web.xlsx | Export WooCommerce | Fiches produits, ventes d'octobre |
-| liaison.xlsx | Correspondance | Lien entre product_id (ERP) et id_web (Web) |
+| liaison.xlsx | Table de correspondance | Lien entre product_id (ERP) et id_web (Web) |
 
-Périmètre : ventes et stock sur le mois d'octobre, tous produits actifs.
+Périmètre : ventes et stocks sur le mois d'octobre, tous produits actifs.
 
 ## Analyses exploratoires – Démarche générale
 
@@ -784,13 +784,13 @@ knitr::kable(
 ::: {.column width="46%"}
 ### Principaux constats
 
-- 714 [pièces jointes]{.accent} à exclure des analyses
+- 714 [pièces jointes]{.accent} à exclure des analyses.
 
-- 4 produits sans [SKU]{.accent}, dont 2 avec des ventes
+- 4 produits sans [SKU]{.accent}, dont 2 avec des ventes.
 
-- Recherche manuelle via [guid]{.accent} non industrialisable
+- Recherche manuelle via [guid]{.accent} non industrialisable.
 
-- Autres [anomalies]{.accent} identifiées
+- Autres [anomalies]{.accent} identifiées.
 :::
 :::::
 
@@ -816,13 +816,13 @@ knitr::kable(
 ::: {.column width="46%"}
 ### Principaux constats
 
-- 3 [prix négatifs]{.accent} détectés dans l’ERP
+- 3 [prix négatifs]{.accent} détectés dans l’ERP.
 
-- Valeurs [corrigées]{.accent} avant les calculs
+- Valeurs [corrigées]{.accent} avant les calculs.
 
-- 2 [stocks négatifs]{.accent} conservés avec prudence
+- 2 [stocks négatifs]{.accent} conservés avec prudence.
 
-- Références ERP parfois absentes du périmètre joint
+- Références ERP parfois absentes du périmètre joint.
 :::
 :::::
 
@@ -913,7 +913,7 @@ Produits exclus de la consolidation
 ::: {.arbitrage-ligne}
 
 ::: {.arbitrage-probleme}
-Lignes [attachment]{.accent}
+Lignes de type [attachment]{.accent}
 :::
 
 ::: {.arbitrage-fleche}
@@ -928,7 +928,7 @@ Lignes exclues des analyses
 
 :::
 
-## Consolidation – Consolidation Web–ERP
+## Consolidation – Rapprochement Web–ERP
 
 ::::::: schema-rel
 
@@ -1048,7 +1048,7 @@ graphique_distribution_prix
 :::::
 :::::::
 
-## Analyses univariées du prix - Dispersion et valeurs atypiques
+## Analyses univariées - Dispersion et valeurs atypiques
 
 ```{r}
 #| label: boxplot_prix_presentation
@@ -1060,7 +1060,7 @@ graphique_boxplot_prix
 ```
 
 [Distribution asymétrique]{.accent} :
-quelques références haut de gamme dépassent nettement le reste du catalogue.
+quelques références haut de gamme se distinguent nettement du reste du catalogue.
 
 ## Analyses complémentaires - Résultats commerciaux
 
@@ -1097,7 +1097,7 @@ quelques références haut de gamme dépassent nettement le reste du catalogue.
 :::::
 
 ::: kpi-label
-[Références vendues sur `r kpi_commerciaux$references_catalogue`]{.accent}
+[Références vendues sur un catalogue de `r kpi_commerciaux$references_catalogue` références]{.accent}
 :::
 :::::::
 
@@ -1184,7 +1184,7 @@ graphique_valorisation_type_presentation
     big.mark = " "
   )` € HT]{.accent}
 
-- Vin et champagne : [`r scales::percent(
+- Vins et champagnes : [`r scales::percent(
     kpi_stock_presentation$part_vin_champagne,
     accuracy = 0.1,
     decimal.mark = ","
@@ -1252,12 +1252,12 @@ graphique_taux_marge_type_presentation
 
 ### Point de contrôle
 
-- `r kpi_marge_presentation$references_marge_negative` référence à [vérifier]{.accent}
+- `r kpi_marge_presentation$references_marge_negative` référence à [vérifier]{.accent}.
 :::
 
 :::::
 
-## Analyses complémentaires - Corrélations entre les indicateurs
+## Analyses complémentaires – Corrélations entre les indicateurs
 
 ::::: columns
 ::: {.column width="64%"}

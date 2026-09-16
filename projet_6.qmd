@@ -19,9 +19,8 @@ editor:
 Ce notebook analyse les ventes, les prix, les stocks et la marge des
 produits BottleNeck à partir de trois fichiers : ERP, liaison et Web.
 
-Les données brutes sont conservées sans modification. Les étapes de
-préparation et les contrôles de qualité sont réalisés en R afin de
-documenter les choix effectués avant les analyses.
+Les données brutes sont conservées sans modification. Les contrôles et
+la préparation sont réalisés en R avant les analyses.
 
 # Étape 1 — Importation des packages et des données
 
@@ -51,6 +50,8 @@ web_raw <- read_excel("data_raw/web.xlsx")
 ```
 
 ## 1.3 Structure des données sources
+Cette première vérification permet de comparer la structure des trois
+sources avant leur préparation.
 
 ```{r}
 #| label: structure_donnees
@@ -86,8 +87,8 @@ knitr::kable(structure_sources)
 
 ## 2.1 Analyse exploratoire du fichier `erp.xlsx`
 
-Cette étape vérifie la structure de l'ERP, l'unicité des identifiants,
-la qualité des prix et la cohérence des stocks.
+Cette étape vérifie les identifiants, les prix, les stocks et les
+statuts de l'ERP avant la préparation de la table analytique.
 
 ### 2.1.1 Dimensions, structure et aperçu des données
 
@@ -102,11 +103,23 @@ dimensions_erp <- tibble(
 
 knitr::kable(dimensions_erp)
 
-# Affichage des types de variables et d'un aperçu des données
+
+# Vérifier la structure et afficher les principales colonnes
 glimpse(erp_raw)
 
-# Aperçu limité aux colonnes principales
-knitr::kable(head(erp_raw |> select(product_id, onsale_web, price, stock_quantity, stock_status, purchase_price)))
+knitr::kable(
+  head(
+    erp_raw |>
+      select(
+        product_id,
+        onsale_web,
+        price,
+        stock_quantity,
+        stock_status,
+        purchase_price
+      )
+  )
+)
 ```
 
 ### 2.1.2 Vérification de la clé `product_id`
@@ -241,14 +254,8 @@ incoherences_stock_status <- erp_stock_controle |>
 knitr::kable(incoherences_stock_status)
 ```
 
-La comparaison permet d'identifier les produits dont le statut renseigné
-dans l'ERP diffère du statut calculé à partir de `stock_quantity`, selon
-la règle imposée par le template.
-
-Cette colonne sert uniquement à comparer le statut déclaré avec une
-règle calculée à partir de la quantité de stock. Elle n'est pas
-conservée dans la table analytique finale, car elle est redondante avec
-le statut d'origine.
+Les écarts entre les deux statuts sont conservés dans cette table de
+contrôle. Le statut d'origine reste inchangé dans la table analytique.
 
 ### 2.1.4 Contrôle des prix de vente
 
@@ -286,20 +293,15 @@ prix_vente_negatifs <- erp_raw |>
 knitr::kable(prix_vente_negatifs)
 ```
 
-Trois produits présentent un prix de vente négatif dans la source ERP.
-Ces valeurs sont considérées comme des erreurs de saisie et ne peuvent
-pas être utilisées telles quelles pour calculer le chiffre d'affaires ou
-la marge.
+Trois prix de vente négatifs sont détectés. Ils sont considérés comme
+des erreurs de saisie.
 
-La valeur originale est conservée dans `prix_vente`. Une seconde
-colonne, `prix_vente_corrige`, contient la valeur positive utilisée pour
-les calculs. L'indicateur `prix_negatif` permet d'identifier les trois
-références corrigées.
+La valeur d'origine est conservée et une valeur corrigée est utilisée
+pour les calculs. L'indicateur `prix_negatif` permet de retrouver les
+références concernées.
 
-Les produits concernés ne disposent toutefois pas de correspondance dans
-la table de liaison. Ils sont donc exclus de `df_analyse` lors du
-premier `inner_join()`. Ils ne participent pas aux analyses combinant
-les données ERP, Web et liaison.
+Ces références ne possèdent pas de correspondance dans la table de
+liaison et sont donc absentes de `df_analyse`.
 
 ### 2.1.5 Contrôle des stocks
 
@@ -337,29 +339,22 @@ stocks_negatifs <- erp_raw |>
 knitr::kable(stocks_negatifs)
 ```
 
-Deux produits présentent une quantité de stock négative. Cette situation
-peut correspondre à des ventes, des préventes ou des précommandes
-enregistrées avant la réception du réapprovisionnement correspondant.
+Deux produits présentent un stock négatif. Cette valeur peut provenir
+d'une prévente, d'une précommande ou d'un décalage de réapprovisionnement.
 
-J'ai choisi de conserver ces valeurs négatives dans la table analytique.
-Elles permettent de préserver l'information source et de conserver la
-trace de ventes déjà enregistrées : lors de la réception de la
-marchandise, le stock peut revenir à zéro, mais les ventes, le chiffre
-d'affaires et la marge associés restent acquis.
+Les stocks négatifs sont conservés afin de préserver les données sources.
+Les produits restent inclus dans les analyses de ventes, de chiffre
+d'affaires et de marge.
 
-Les produits concernés restent donc inclus dans les analyses
-commerciales de quantités vendues, chiffre d'affaires et marge. En
-revanche, ils devront être interprétés avec prudence dans les analyses
-portant sur le niveau de stock réellement disponible, car une quantité
-négative ne représente pas un stock physique.
+En revanche, leur niveau de stock doit être interprété avec prudence :
+une quantité négative ne représente pas un stock physique disponible.
 
 ### 2.1.6 Contrôle de l'indicateur `onsale_web`
 
-La variable `onsale_web` indique si un produit est proposé à la vente
-sur le site Web :
+`onsale_web` indique si le produit est proposé sur le site :
 
-- `1` : produit proposé à la vente en ligne ;
-- `0` : produit non proposé à la vente en ligne.
+- `1` : proposé ;
+- `0` : non proposé.
 
 ```{r}
 #| label: distribution_onsale_web
@@ -417,15 +412,10 @@ coherence_onsale_stock <- erp_raw |>
 knitr::kable(coherence_onsale_stock)
 ```
 
-Les produits non proposés sur le Web avec un stock positif sont
-conservés tels quels. Ils peuvent être réservés à un autre canal de
-vente ou correspondre à un choix commercial.
-
-Les produits proposés à la vente en ligne avec un stock nul sont
-également conservés. Ils peuvent correspondre à de la prévente, de la
-précommande ou à un décalage de mise à jour du stock. Ces cas sont
-signalés comme des limites pour l'interprétation de la disponibilité sur
-le site Web.
+Les situations atypiques sont conservées, car elles peuvent correspondre
+à un autre canal de vente, à une prévente ou à un décalage de mise à
+jour. Elles seront interprétées avec prudence dans les analyses de
+disponibilité Web.
 
 ### 2.1.7 Contrôle des prix d'achat
 
@@ -447,14 +437,12 @@ knitr::kable(controle_prix_achat)
 
 ### 2.1.8 Création de la table ERP analytique
 
-La table `erp_analytique` contient les variables nécessaires aux
-analyses commerciales, de marge et de stock.
+La table `erp_analytique` regroupe les variables nécessaires aux
+analyses de ventes, de marge et de stock.
 
-Les prix négatifs sont corrigés dans une colonne distincte,
-`prix_vente_corrige`. Les stocks négatifs sont conservés sans
-modification dans `quantite_stock`, car ils peuvent traduire une
-prévente ou une précommande.
-
+Les prix négatifs sont conservés dans la colonne d'origine et corrigés
+dans `prix_vente_corrige`. Les stocks négatifs sont conservés dans
+`quantite_stock` et seront interprétés avec prudence.
 ```{r}
 #| label: creation_erp_analytique
 
@@ -507,14 +495,11 @@ knitr::kable(controle_erp_analytique)
 
 ## 2.2 Analyse exploratoire du fichier `web.xlsx`
 
-L'export Web contient les données issues du site WooCommerce. Il
-comporte des fiches produit, mais également des éléments techniques,
-notamment des pièces jointes telles que des images.
+L'export Web contient à la fois des fiches produit et des lignes
+techniques, notamment des pièces jointes.
 
-L'objectif de cette étape est d'identifier les lignes correspondant
-réellement à des produits, de contrôler les identifiants SKU et de
-conserver uniquement les variables nécessaires aux analyses des ventes
-et aux jointures avec les données ERP.
+Cette étape consiste à isoler les produits, contrôler les SKU et préparer
+les variables nécessaires aux ventes et aux jointures ERP.
 
 ### 2.2.1 Dimensions, structure et aperçu des données
 
@@ -548,15 +533,9 @@ distribution_post_type <- web_raw |>
 knitr::kable(distribution_post_type)
 ```
 
-L'export Web contient plusieurs types de contenu. Les lignes dont
-`post_type` est égal à `product` correspondent aux fiches produit. Les
-lignes de type `attachment` correspondent à des pièces jointes,
-notamment des images associées aux produits.
-
-Seules les lignes de type `product` sont conservées pour les analyses.
-Inclure les pièces jointes dans les jointures pourrait créer des
-doublons et gonfler artificiellement les quantités vendues ou le chiffre
-d'affaires.
+Les lignes `product` correspondent aux fiches produit. Les lignes
+`attachment` sont des pièces jointes et sont exclues des analyses afin
+d'éviter les doublons et le gonflement artificiel des indicateurs.
 
 ### 2.2.3 Création de la table des fiches produit
 
@@ -645,10 +624,9 @@ identifiants_guid_sans_sku <- sku_manquants_produits |>
 knitr::kable(identifiants_guid_sans_sku)
 ```
 
-Ce contrôle confirme qu'un identifiant WordPress est présent dans le
-champ `guid` des produits sans SKU. Il n'est pas utilisé comme clé de
-jointure dans les analyses, afin de ne pas mélanger deux règles de
-rapprochement différentes.
+Un identifiant est présent dans `guid`, mais il n'est pas
+utilisé pour la jointure. La règle retenue reste basée sur le SKU afin
+de conserver une méthode homogène.
 
 #### SKU dupliqués
 
@@ -696,9 +674,8 @@ controle_colonnes_techniques_web <- web_produits_brut |>
 knitr::kable(controle_colonnes_techniques_web)
 ```
 
-Les variables techniques dont les valeurs sont constantes ou sans
-utilité pour les analyses demandées ne sont pas conservées dans la table
-Web analytique.
+Les variables techniques non nécessaires aux analyses ne sont pas
+conservées dans la table Web analytique.
 
 ### 2.2.6 Contrôle des variables qualitatives
 
@@ -776,17 +753,11 @@ knitr::kable(controle_colonnes_vides_web)
 
 ### 2.2.8 Création de la table Web analytique
 
-Les variables suivantes sont conservées dans la table `web_analytique` :
+La table `web_analytique` conserve le SKU, le nom, le type de produit et
+les ventes d'octobre.
 
-- `sku` : identifiant produit retenu comme clé de jointure vers la table
-  de liaison ;
-- `post_title` : libellé du produit ;
-- `product_type` : type de produit, utile aux segmentations ;
-- `total_sales` : quantité vendue au cours du mois d'octobre.
-
-Les dates Web correspondent à la création ou à la modification des
-fiches produit, et non aux dates de vente. Elles ne sont donc pas
-utilisées dans les analyses de ventes d'octobre.
+Les dates Web ne correspondent pas aux dates de vente et ne sont donc
+pas utilisées dans l'analyse.
 
 ```{r}
 #| label: creation_web_analytique
@@ -826,13 +797,9 @@ knitr::kable(controle_web_analytique)
 
 ## 2.3 Analyse exploratoire du fichier `liaison.xlsx`
 
-La table de liaison permet de faire correspondre les identifiants
-produits utilisés dans l'ERP (`product_id`) avec les identifiants
-produits utilisés sur le site Web (`id_web`).
-
-Elle joue un rôle central dans les analyses : les ventes sont associées
-au SKU Web, puis le SKU est relié à l'identifiant ERP grâce à cette
-table.
+La table de liaison relie l'identifiant ERP `product_id` à
+l'identifiant Web `id_web`. Elle permet de rapprocher les ventes Web des
+informations ERP.
 
 ### 2.3.1 Dimensions, structure et aperçu des données
 
@@ -954,15 +921,9 @@ resume_product_id_sans_id_web <- liaison_raw |>
 knitr::kable(resume_product_id_sans_id_web)
 ```
 
-Les références ERP sans `id_web` ne peuvent pas être rapprochées
-automatiquement des ventes Web. Elles peuvent correspondre à des
-produits non proposés sur le site, à des produits archivés ou à des
-correspondances absentes de la table de liaison.
-
-Ces références restent présentes dans les données ERP, mais elles ne
-pourront pas être intégrées aux analyses combinant les données de ventes
-Web, de prix, de marge et de stock. Cette limite sera prise en compte
-lors des jointures.
+Les références ERP sans `id_web` restent présentes dans l'ERP, mais ne
+peuvent pas être intégrées aux analyses combinant les données Web et
+ERP. Elles constituent une limite de couverture lors des jointures.
 
 ### 2.3.5 Création de la table de liaison analytique
 
@@ -1002,11 +963,9 @@ knitr::kable(controle_liaison_analytique)
 
 # Étape 3 — Contrôles des correspondances et table analytique principale
 
-Les tables analytiques (`erp_analytique`, `web_analytique`,
-`liaison_analytique`) ont été préparées à l'étape 2. Avant de réaliser
-les analyses commerciales, on contrôle les correspondances entre les
-clés de jointure, puis on crée une table analytique principale
-`df_analyse` en joignant les trois tables avec `*_join()` du tidyverse.
+Les trois tables analytiques sont préparées. Les clés de jointure sont
+d'abord contrôlées, puis les tables sont rapprochées pour définir le
+périmètre commun des analyses.
 
 ## 3.1 — SKU Web sans correspondance dans la table de liaison
 
@@ -1072,7 +1031,7 @@ df_analyse <- erp_analytique |>
 knitr::kable(head(df_analyse |> select(product_id, id_web, prix_vente_corrige, total_sales, post_title)))
 ```
 
-### 3.4.1 — Contrôle des prix négatifs exclus du périmètre joint
+## 3.4 — Contrôle des prix négatifs exclus du périmètre joint
 
 Les prix négatifs sont présents dans `erp_analytique`, mais les
 références concernées ne disposent pas de correspondance dans la table
@@ -1099,13 +1058,11 @@ prix_negatifs_exclus <- erp_analytique |>
 knitr::kable(prix_negatifs_exclus)
 ```
 
-Les trois références à prix négatif sont exclues de `df_analyse`, non
-pas par une correction supplémentaire, mais parce qu'elles ne disposent
-pas de correspondance dans `liaison_analytique`. Elles restent présentes
-dans la table ERP analytique et sont prises en compte dans le contrôle
-qualité, mais elles ne peuvent pas être intégrées aux analyses Web–ERP.
+Les trois références à prix négatif restent présentes dans la table ERP
+analytique, mais sont absentes de `df_analyse` faute de correspondance
+dans la table de liaison.
 
-### 3.4.2 — Contrôles de cohérence de `df_analyse`
+## 3.5 — Contrôles de cohérence de `df_analyse`
 
 ```{r}
 #| label: controle_df_analyse
@@ -1125,22 +1082,14 @@ controle_df_analyse <- df_analyse |>
 knitr::kable(controle_df_analyse)
 ```
 
-Le nombre de lignes de `df_analyse` correspond aux produits disposant
-simultanément :
+`df_analyse` correspond uniquement au périmètre commun aux trois sources :
+ERP, liaison et Web.
 
-- d'une référence dans l'ERP ;
-- d'une correspondance dans la table de liaison ;
-- d'une fiche produit Web avec un SKU correspondant.
+Il ne représente donc pas l'ensemble des références ERP. Certaines
+anomalies peuvent rester absentes de cette table si les références ne
+sont pas appariées.
 
-`df_analyse` ne représente donc pas l'ensemble des références ERP. Il
-représente le périmètre commun aux trois sources, après application des
-règles de jointure.
-
-Certaines anomalies détectées dans l'ERP peuvent donc être absentes de
-`df_analyse` si les références concernées ne possèdent pas de
-correspondance dans la table de liaison ou dans l'export Web.
-
-## 3.5 — Synthèse de la couverture des données
+## 3.6 — Synthèse de la couverture des données
 
 ```{r}
 #| label: resume_couverture_donnees
@@ -1167,10 +1116,8 @@ knitr::kable(resume_couverture)
 
 # Étape 4 — Analyse univariée des prix
 
-Cette étape analysera la distribution des prix de vente corrigés. Les
-prix sont considérés comme hors taxes (HT) : l'export indique que les
-produits sont taxables, mais aucun taux de TVA n'est fourni. Les calculs
-de chiffre d'affaires, marge et valorisation seront donc réalisés en HT.
+Cette étape analyse la distribution des prix de vente corrigés. Les
+calculs sont réalisés en HT, car aucun taux de TVA n'est fourni.
 
 ## 4.1 Visualisation de la distribution des prix
 
@@ -1226,12 +1173,6 @@ ggplot(df_analyse, aes(x = prix_vente_corrige)) +
 ```
 
 ## 4.2 Exploration par l'utilisation de méthodes statistiques
-
-Les prix sont considérés comme hors taxes (HT) : l'export indique que
-les produits sont taxables, mais aucun taux de TVA n'est fourni. Les
-calculs de chiffre d'affaires, marge et valorisation seront donc
-réalisés en HT.
-
 ### 4.2.1 — Identification par le Z-score
 
 Le Z-score mesure le nombre d'écarts-types séparant une observation de
@@ -1350,40 +1291,13 @@ knitr::kable(head(outliers_iqr))
 
 ### Analyse des outliers : sont-ils justifiés ?
 
-Les deux méthodes (Z-score et IQR) repèrent des produits avec des prix
-très éloignés de la moyenne, mais ça ne veut pas dire automatiquement
-qu'il y a une erreur.
+Les méthodes du Z-score et de l'IQR identifient des prix atypiques.
+Cependant, un prix élevé n'est pas nécessairement une erreur : il peut
+correspondre à une référence premium ou rare.
 
-Pour vérifier si ces prix atypiques sont “normaux”, on peut se poser
-quelques questions simples :
-
-- **Est-ce que ce sont des produits “spéciaux” ?**\
-  Certains produits (champagnes prestigieux, cognacs rares, vieux
-  millésimes) coûtent naturellement plus cher que le reste. Regarder le
-  nom du produit (`post_title`) ou son type (`product_type`) aide à
-  comprendre si on est sur de la gamme supérieure.
-
-- **Est-ce que le prix d'achat est lui aussi élevé ?**\
-  Un prix de vente haut peut être justifié si le produit a coûté cher à
-  acheter. Calculer la marge
-  `(prix_vente_corrige - prix_achat) / prix_achat` pour ces produits
-  permet de voir si leur marge est cohérente avec le reste du catalogue
-  ou complètement hors norme.
-
-- **Est-ce que ces produits se vendent ?**\
-  Un produit cher mais qui se vend peut vouloir dire que le prix est
-  accepté par le marché. À l'inverse, un produit très cher avec très peu
-  ou pas de ventes peut signaler un prix inadapté.
-
-- **Qu'en pensent les équipes métier ?**\
-  Dans l'idéal, il faudrait demander aux équipes commerciales ou achats
-  si ces prix correspondent à une vraie stratégie (produits de prestige,
-  liquidation, etc.).
-
-Dans ce projet, on n'a pas toutes ces informations. On va surtout
-**garder ces outliers dans les analyses** et les considérer comme des
-points de vigilance : ce sont des prix réels, ils font partie du
-catalogue, mais ils mériteraient d'être creusés avec l'équipe.
+Les informations disponibles ne permettent pas de confirmer une anomalie.
+Les outliers sont donc conservés dans les analyses et considérés comme
+des points de vigilance à valider avec les équipes métier.
 
 # Étape 5 — Analyses complémentaires
 
@@ -1440,14 +1354,11 @@ knitr::kable(
 )
 ```
 
-Le chiffre d'affaires total du périmètre analysé est de **143 285,90 €
-HT** pour le mois d'octobre.
+Le chiffre d'affaires du périmètre apparié est de **143 285,90 € HT**
+pour octobre.
 
-Ce montant correspond uniquement aux produits disposant d'une
-correspondance entre les fichiers Web, liaison et ERP. Il ne représente
-donc pas nécessairement le chiffre d'affaires total de BottleNeck,
-notamment pour les produits non référencés sur le site Web ou non
-appariés dans la table de liaison.
+Ce montant ne représente pas nécessairement le chiffre d'affaires total
+de BottleNeck, car il exclut les références non appariées.
 
 ### 5.1.2 Palmarès des articles
 
@@ -1496,14 +1407,11 @@ knitr::kable(
 )
 ```
 
-Le classement montre que les produits générant le plus de chiffre
-d'affaires combinent généralement un prix de vente élevé, un volume de
+Les produits en tête du classement combinent un prix élevé, un volume de
 ventes important, ou les deux.
 
-Le premier produit du classement génère 2 475 € HT. Les produits situés
-en tête appartiennent principalement à une gamme premium de vins et
-champagnes, ce qui rend cohérents les prix élevés identifiés lors de
-l'analyse univariée.
+Le premier produit génère 2 475 € HT. Les références les mieux classées
+appartiennent principalement à une gamme premium.
 
 ```{r}
 #| label: graphique_top_20_ca
@@ -1542,13 +1450,9 @@ ggplot(
   )
 ```
 
-Le graphique confirme que les produits en tête du classement génèrent un
-chiffre d'affaires important grâce à des prix de vente élevés, à des
-volumes de vente importants, ou à la combinaison des deux.
-
-L'analyse du 20/80 qui suit permettra de mesurer plus précisément la
-part du chiffre d'affaires concentrée sur les références les plus
-performantes.
+Le graphique confirme la concentration du chiffre d'affaires sur les
+références les plus performantes. L'analyse suivante mesure cette
+concentration avec le seuil de 80 %.
 
 ### 5.1.3 Calculer le 20/80 en CA
 
@@ -1632,11 +1536,10 @@ synthese_pareto_ca <- tibble(
 synthese_pareto_ca
 ```
 
-Les 433 produits générant le plus de chiffre d'affaires permettent de
-cumuler au moins 80 % du chiffre d'affaires HT total. Ils représentent
-60,8 % des 712 références du catalogue analysé. La règle théorique du
-80/20 n'est donc pas observée : le chiffre d'affaires est réparti sur
-une part importante du catalogue.
+433 références, soit 60,8 % du catalogue analysé, sont nécessaires pour
+atteindre 80 % du chiffre d'affaires.
+
+La règle théorique du 80/20 n'est donc pas observée.
 
 ## 5.2 Analyse des ventes en quantité
 
@@ -1780,29 +1683,21 @@ synthese_pareto_quantite <- tibble(
 synthese_pareto_quantite
 ```
 
-Les 432 produits les plus vendus permettent de cumuler au moins 80 % des
-quantités vendues. Ils représentent 60,7 % des 712 références du
-catalogue analysé.
+432 références, soit 60,7 % du catalogue analysé, représentent 80 % des
+quantités vendues.
 
-Ce résultat est très proche de celui obtenu pour le chiffre d'affaires :
-433 références, soit 60,8 % du catalogue, sont nécessaires pour
-atteindre 80 % du CA HT. Les ventes en quantité et le chiffre d'affaires
-sont donc répartis sur un grand nombre de références ; la règle
-indicative de Pareto 80/20 n'est pas observée dans ce jeu de données.
+Le résultat est proche de celui obtenu pour le chiffre d'affaires. Les
+ventes sont donc réparties sur une part importante du catalogue.
 
 ## 5.3 Analyse des stocks
 
 ### 5.3.1 Estimation du nombre de mois de stock
 
-Le nombre de mois de stock estime la durée pendant laquelle le stock
-actuel pourrait couvrir les ventes, si le rythme observé en octobre
-restait identique.
+La couverture estimée indique combien de mois le stock actuel pourrait
+couvrir les ventes si le rythme d'octobre restait identique.
 
-Le template présente cet indicateur comme une rotation de stock.
-Cependant, les données couvrent seulement un mois de ventes et un stock
-à un instant donné. Il s'agit donc d'une **couverture estimée de
-stock**, et non d'une rotation de stock annuelle calculée à partir d'un
-stock moyen.
+Comme l'analyse porte sur un seul mois et un stock observé à un instant
+donné, il ne s'agit pas d'une rotation annuelle.
 
 #### Calcul de l'indicateur
 
@@ -1918,10 +1813,9 @@ ggplot(
   )
 ```
 
-Une couverture élevée peut signaler un stock important par rapport aux
-ventes du mois. Ce résultat doit toutefois être interprété avec
-prudence, car il ne tient pas compte de la saisonnalité ni de
-l'évolution des ventes sur une année complète.
+Une couverture élevée signale un stock important par rapport aux ventes
+d'octobre. Ce résultat doit être interprété avec prudence, car il ne
+tient pas compte de la saisonnalité.
 
 ### 5.3.2 Valorisation des stocks en euros
 
@@ -2015,11 +1909,8 @@ disponible.
 
 ### 5.4.1 Calcul du taux de marge
 
-Le taux de marge mesure le gain brut réalisé sur la vente d'un produit
-par rapport à son prix d'achat. Il permet de comparer la rentabilité
-relative des références, indépendamment de leur quantité vendue.
-
-Le taux de marge est calculé selon la formule suivante :
+Le taux de marge compare le gain brut réalisé sur une référence à son
+prix d'achat. Il est calculé indépendamment des quantités vendues.
 
 Taux de marge = ((prix de vente HT - prix d'achat) / prix d'achat) × 100
 
@@ -2073,15 +1964,11 @@ marge_negative
 ```
 
 Une seule référence présente un taux de marge négatif : un champagne
-affiché à 12,60 € HT pour un prix d'achat de 77,50 € HT. Cette référence
-n'a enregistré aucune vente en octobre et n'a donc généré ni chiffre
-d'affaires ni perte commerciale sur la période.
+affiché à 12,60 € HT pour un prix d'achat de 77,50 € HT. Il n'a enregistré
+aucune vente en octobre.
 
-Une hypothèse possible est une erreur de saisie de la virgule dans le
-prix de vente : un prix de 126 € HT, au lieu de 12,60 € HT, conduirait à
-un taux de marge de 62,6 %, proche du taux moyen observé pour les
-champagnes. Cette hypothèse ne peut toutefois pas être confirmée à
-partir des données disponibles. La valeur initiale est donc conservée.
+Une erreur de saisie est possible, mais elle ne peut pas être confirmée
+avec les données disponibles. La valeur initiale est donc conservée.
 
 ### 5.4.3 Analyse des marges positives
 
@@ -2166,43 +2053,24 @@ ggplot(
   )
 ```
 
-Le taux de marge moyen est le plus élevé pour le cognac (119 %), suivi
-du whisky (118 %) et du gin (110 %). Ces catégories regroupent toutefois
-un nombre limité de références, respectivement 8, 14 et 2, ce qui invite
-à interpréter ces résultats avec prudence.
+Le cognac, le whisky et le gin présentent les taux de marge moyens les
+plus élevés. Ces catégories regroupent toutefois peu de références, ce
+qui limite la portée de la comparaison.
 
-Le vin, qui représente la grande majorité des références analysées avec
-657 produits, présente un taux de marge moyen de 93,8 %. Le champagne
-affiche un taux moyen plus faible, de 67,9 % sur 27 références. Ce
-résultat est cohérent avec les analyses précédentes : les champagnes
-concentrent une forte valeur de stock et une part importante du chiffre
-d'affaires, mais leur taux de marge moyen est inférieur à celui des
-vins.
+Le vin représente la majorité des références et affiche un taux moyen de
+93,8 %. Le champagne présente un taux moyen plus faible, de 67,9 %.
 
-Ces résultats décrivent des taux de marge moyens par référence. Ils ne
-permettent pas à eux seuls de déterminer quelles catégories génèrent le
-plus de marge en euros, car cette analyse nécessiterait de prendre en
-compte les quantités vendues.
+Ces taux sont calculés par référence. Ils ne permettent pas à eux seuls
+de déterminer quelles catégories génèrent le plus de marge en euros :
+les quantités vendues devraient également être prises en compte.
 
 ## 5.5 Analyse des corrélations entre stock, ventes et prix
 
-Cette section explore les relations linéaires entre trois variables clés
+Cette analyse étudie les relations linéaires entre le stock, les ventes
+d'octobre et le prix de vente corrigé.
 
-: 
-
-- `quantite_stock` : quantité en stock dans l’ERP ;
-- `total_sales` : quantité vendue en octobre (Web) ;
-- `prix_vente_corrige` : prix de vente HT corrigé.
-
-L’objectif est de détecter d’éventuelles corrélations fortes entre ces
-variables, par exemple :
-
-- un lien entre le niveau de stock et les ventes (les produits très
-  vendus sont-ils mieux approvisionnés ?) ;
-- un lien entre le prix et les ventes (les produits chers se vendent-ils
-  moins ?) ;
-- un lien entre le prix et le stock (les produits chers ont-ils des
-  stocks plus faibles ?).
+L'objectif est d'identifier d'éventuelles relations entre ces variables,
+sans conclure à une causalité.
 
 ### 5.5.1 Calcul de la matrice de corrélation
 
@@ -2291,23 +2159,17 @@ ggplot(
 
 ### 5.5.3 Interprétation des corrélations
 
-La corrélation entre la quantité en stock et les ventes est positive et
-modérée **(r = 0,438)**. Les produits les plus vendus tendent donc à
-disposer d'un stock plus important, sans que cette relation soit forte.
+La relation entre stock et ventes est positive et modérée
+**(r = 0,438)**.
 
-La corrélation entre le prix de vente et les quantités vendues est
-négative et modérée **(r = -0,516)**. Les produits les plus chers
-tendent à être vendus en plus faibles quantités.
+La relation entre prix et quantités vendues est négative et modérée
+**(r = -0,516)**.
 
-Enfin, la corrélation entre le prix de vente et la quantité en stock est
-très faible et négative **(r = -0,106)**. Le prix semble donc avoir peu
-de relation linéaire avec le niveau de stock.
+La relation entre prix et stock est très faible
+**(r = -0,106)**.
 
-Ces corrélations décrivent des relations linéaires et ne permettent pas
-d'établir un lien de causalité. Elles sont également calculées sur un
-seul mois de ventes.
-
-## 5.6 Mise à disposition de la vue analytique au format Excel
+Ces résultats décrivent des relations linéaires sur un seul mois. Ils ne
+permettent pas de conclure à un lien de causalité.
 
 ## 5.6 Mise à disposition de la vue analytique au format Excel
 
@@ -2405,23 +2267,21 @@ write_xlsx(
 )
 ```
 
-Le fichier Excel contient les références correctement appariées entre
-les données ERP, de liaison et Web, ainsi que les indicateurs de chiffre
-d'affaires, de couverture estimée de stock, de valorisation et de marge.
+Le fichier Excel contient les références présentes dans les trois sources
+et les principaux indicateurs calculés : chiffre d'affaires, couverture
+estimée, valorisation du stock et taux de marge.
 
-La vue `df_export` reprend uniquement le périmètre de `df_analyse`,
-c'est-à-dire les références présentes dans les trois sources. Les trois
-produits ERP à prix négatif étant absents de la table de liaison, ils ne
-sont pas présents dans cette vue exportée.
+La vue exportée reprend uniquement le périmètre de `df_analyse`. Les
+trois références ERP à prix négatif en sont donc absentes, car elles ne
+sont pas présentes dans la table de liaison.
 
 # Étape 6 — Limites, recommandations et conclusion
 
 ## 6.1 Erreurs, incohérences et arbitrages
 
-Les fichiers sources ont été conservés sans modification. Les anomalies
-et incohérences identifiées ont été traitées dans les vues analytiques,
-en conservant autant que possible la valeur d'origine et la trace des
-choix effectués.
+Les fichiers sources sont conservés sans modification. Les anomalies
+sont traitées dans les vues analytiques, avec conservation des valeurs
+d'origine et des décisions prises.
 
 | \# | Élément identifié | Décision retenue |
 |------------------------|------------------------|------------------------|
@@ -2560,27 +2420,20 @@ choix effectués.
 
 ## 6.3 Conclusion
 
-Ce projet a consisté à explorer, nettoyer et analyser des données
-produits et ventes provenant de deux sources : un export du site
-e-commerce et un ERP interne. L’objectif était de construire des vues
-analytiques fiables, d’identifier les anomalies et incohérences dans les
-données, et de proposer des pistes d’amélioration concrètes pour la
-suite.
+Ce projet a permis d'explorer et de préparer les données produits et
+ventes de BottleNeck à partir de l'ERP, du site Web et de la table de
+liaison.
 
-L’analyse a montré plusieurs limites importantes : des produits sans
-SKU, des références ERP sans correspondance sur le Web, des prix ou des
-stocks négatifs, des incohérences de catégories et de statuts, et des
-risques de doublons ou de clés de jointure non uniques. Ces problèmes
-rendent les analyses combinant les deux canaux fragiles et obligent à
-interpréter les indicateurs avec prudence, en gardant en tête que
-certaines situations peuvent être mal représentées.
+Les principales limites concernent les SKU manquants, les références non
+appariées, les prix et stocks négatifs, ainsi que certaines incohérences
+de statuts ou de catégories. Les indicateurs doivent donc être
+interprétés avec prudence.
 
-Les recommandations portent sur trois axes : mieux encadrer la saisie et
-l’intégration des données (validation des prix, des quantités, des
-statuts), mettre en place une gouvernance simple mais efficace (règles
-documentées et partagées, contrôles réguliers), et faire évoluer
-l’architecture vers une source de vérité centrale avec des
-synchronisations automatiques entre l’ERP et le Web. Si ces actions sont
-mises en place, elles devraient réduire durablement les anomalies et
-permettre de produire des indicateurs plus fiables pour piloter
-l’activité.
+Les recommandations portent sur trois axes :
+
+- mieux contrôler la saisie des prix, stocks et statuts ;
+- documenter et vérifier régulièrement les règles de gestion ;
+- centraliser et automatiser les échanges entre l'ERP et le site Web.
+
+Ces actions permettraient de réduire les anomalies et de produire des
+indicateurs plus fiables.
