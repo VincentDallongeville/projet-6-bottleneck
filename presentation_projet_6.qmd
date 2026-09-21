@@ -9,6 +9,7 @@ format:
     slide-number: true
     toc: false
     css: styles.css
+    embed-resources: true
 editor:
   markdown:
     wrap: 72
@@ -24,6 +25,7 @@ library(readxl)
 library(dplyr)
 library(ggplot2)
 library(tidyr)
+library(corrplot)
 
 # Importer la vue préparée correspondant au périmètre ERP–Web joint.
 # Cette table sert aux analyses, aux graphiques et aux indicateurs de la présentation.
@@ -589,55 +591,16 @@ resume_correlation_presentation <- tibble::tibble(
 )
 
 noms_correlation <- c(
-  prix_vente_corrige_ht = "Prix de vente",
-  quantite_vendue_octobre = "Quantités vendues",
-  chiffre_affaires_ht = "Chiffre d'affaires",
-  quantite_en_stock = "Stock",
-  couverture_estimee_mois = "Couverture"
+  "Prix",
+  "Quantités \nvendues",
+  "Chiffre \nd'affaires",
+  "Stock",
+  "Couverture"
 )
 
-correlation_longue_presentation <- as.data.frame(
-  matrice_correlation_presentation
-) |>
-  tibble::rownames_to_column("variable_1") |>
-  tidyr::pivot_longer(
-    cols = -variable_1,
-    names_to = "variable_2",
-    values_to = "correlation"
-  ) |>
-  mutate(
-    variable_1 = recode(variable_1, !!!noms_correlation),
-    variable_2 = recode(variable_2, !!!noms_correlation)
-  )
+colnames(matrice_correlation_presentation) <- noms_correlation
+rownames(matrice_correlation_presentation) <- noms_correlation
 
-graphique_correlation_presentation <- ggplot(
-  correlation_longue_presentation,
-  aes(x = variable_2, y = variable_1, fill = correlation)
-) +
-  geom_tile(color = "white") +
-  geom_text(
-    aes(
-      label = scales::number(
-        correlation,
-        accuracy = 0.01,
-        decimal.mark = ","
-      )
-    ),
-    size = 3
-  ) +
-  scale_fill_gradient2(
-    low = "#B85450",
-    mid = "white",
-    high = "#4C86B7",
-    midpoint = 0,
-    limits = c(-1, 1)
-  ) +
-  labs(x = NULL, y = NULL, fill = "Corrélation") +
-  theme_minimal() +
-  theme(
-    axis.text.x = element_text(angle = 45, hjust = 1),
-    panel.grid = element_blank()
-  )
 ```
 
 :::::::: slide-couverture
@@ -1257,17 +1220,29 @@ graphique_taux_marge_type_presentation
 
 :::::
 
-## Analyses complémentaires – Corrélations entre les indicateurs
+## Analyses complémentaires - Corrélations entre les indicateurs
 
 ::::: columns
 ::: {.column width="64%"}
 ```{r}
 #| label: correlation_presentation
 #| echo: false
-#| fig-width: 9
-#| fig-height: 5.5
+#| warning: false
+#| message: false
+#| fig-width: 8
+#| fig-height: 6
 
-graphique_correlation_presentation
+corrplot::corrplot.mixed(
+  matrice_correlation_presentation,
+  lower = "number",
+  upper = "circle",
+  tl.col = "#1B2A4A",
+  tl.cex = 0.9,
+  number.cex = 1.05,
+  lower.col = "#1B2A4A",
+  number.digits = 2,
+  diag = "n"
+)
 ```
 :::
 
@@ -1297,9 +1272,7 @@ graphique_correlation_presentation
 
 - Limite : tendance [≠]{.accent} cause
 :::
-
 :::::
-
 ## Recommandations - Fiabiliser les données et les échanges
 
 ::: {.table-recommandations}
